@@ -100,25 +100,15 @@ local T = {
 }
 
 -- ── STATE ──────────────────────────────────────────────────────────────────
-local MagOn         = false
-local MagSize       = 25
-local MagLMBOnly    = true
-local lmbHeld       = false
 local rmbHeld       = false
 
 local PullOn        = false
 local PullStr       = 3
 local PullMode      = 1
 
-local BallPredOn    = false
-local ballPredLine  = nil
-local ballPredDot   = nil
 
 local ReachOn       = false
 local ReachSz       = 20
-local AutoCatchOn   = false
-local CatchDist     = 30
-local catchDB       = 0
 
 local AutoFollowOn  = false
 local FollowRange   = 20
@@ -146,12 +136,10 @@ local FlySpd        = 40
 local TeleportFwdOn = false
 
 local SilentModeOn  = false
-local BallFFOn      = false
 
 local Conns         = {}
 local Unloaded      = false
-local angleConns    = {}
-local anglePrevSpace = false
+
 local flyBV         = nil
 local _antiBlockTick = 0
 local _tackleReachTick = 0
@@ -186,39 +174,6 @@ end
 local _ball = nil
 local _ballConns = {}
 
--- FIX 1: _ballFFParts and both FF functions moved ABOVE watchBall so they exist when called
-local _ballFFParts = {}
-
-local function makeBallFF(ball)
-    if _ballFFParts[ball] then return end
-    local part = Instance.new("Part")
-    part.Shape        = Enum.PartType.Ball
-    part.Size         = Vector3.new(25, 25, 25)
-    part.Color        = T.acc
-    part.Material     = Enum.Material.Neon
-    part.Transparency = 0.82
-    part.CanCollide   = false
-    part.CanQuery     = false
-    part.CastShadow   = false
-    part.Anchored     = true
-    part.Name         = "DuneBallFF"
-    part.CFrame       = CFrame.new(ball.Position)
-    part.Parent       = workspace  -- FIX 5: always parent to workspace, visibility controlled via Transparency
-    _ballFFParts[ball] = part
-    -- If FF is off right now, hide it immediately
-    if not BallFFOn then
-        part.Transparency = 1
-    end
-end
-
-local function destroyBallFF(ball)
-    local part = _ballFFParts[ball]
-    if part then
-        pcall(function() part:Destroy() end)
-        _ballFFParts[ball] = nil
-    end
-end
-
 local function resetCatchParts()
     local char = LP.Character; if not char then return end
     for _, n in ipairs({"CatchLeft", "CatchRight"}) do
@@ -237,12 +192,9 @@ end
 
 local function watchBall(ball)
     if _ballConns[ball] then return end
-    -- Now safe: makeBallFF and destroyBallFF are defined above
-    if BallFFOn then makeBallFF(ball) end
     _ballConns[ball] = ball.Destroying:Connect(function()
         if _ball == ball then _ball = nil end
         resetCatchParts()
-        destroyBallFF(ball)
         _ballConns[ball] = nil
     end)
 end
@@ -252,11 +204,18 @@ local function getBall()
     if _ball and _ball.Parent then return _ball end
     _ball = nil
     for _, v in ipairs(workspace:GetChildren()) do
-        if v.Name == "Football" and v:IsA("BasePart") then
-            _ball = v; watchBall(v); return v
+        if v.Name == "Football" then
+            if v:IsA("BasePart") then
+                _ball = v; watchBall(v); return v
+            elseif v:IsA("Model") then
+                -- Model named Football — grab first BasePart inside (any name)
+                local fb = v:FindFirstChildWhichIsA("BasePart", true)
+                if fb then _ball = fb; watchBall(fb); return fb end
+            end
         end
+        -- Also check for model with a Football BasePart inside
         if v:IsA("Model") then
-            local fb = v:FindFirstChild("Football")
+            local fb = v:FindFirstChild("Football", true)
             if fb and fb:IsA("BasePart") then
                 _ball = fb; watchBall(fb); return fb
             end
@@ -265,22 +224,22 @@ local function getBall()
     return nil
 end
 
--- FIX 2: ChildAdded only (removed DescendantAdded — it fired on every GUI/part change in the entire game causing massive lag)
+-- ChildAdded handler — handles both direct BasePart and Model named Football
 conn(workspace.ChildAdded, function(child)
-    if child.Name == "Football" and child:IsA("BasePart") then
-        _ball = child
-        watchBall(child)
-    end
-    if child:IsA("Model") then
-        local fb = child:FindFirstChild("Football")
-        if fb and fb:IsA("BasePart") then
-            _ball = fb; watchBall(fb)
+    if child.Name == "Football" then
+        if child:IsA("BasePart") then
+            _ball = child; watchBall(child)
+        elseif child:IsA("Model") then
+            -- Model named Football — grab first BasePart inside
+            local fb = child:FindFirstChildWhichIsA("BasePart", true)
+            if fb then _ball = fb; watchBall(fb) end
+            -- Also watch for parts added later
+            child.DescendantAdded:Connect(function(v)
+                if v:IsA("BasePart") and not _ball then
+                    _ball = v; watchBall(v)
+                end
+            end)
         end
-        child.ChildAdded:Connect(function(v)
-            if v.Name == "Football" and v:IsA("BasePart") and not _ballConns[v] then
-                _ball = v; watchBall(v)
-            end
-        end)
     end
 end)
 
@@ -291,7 +250,7 @@ local function getBallCarrier()
         local char = p.Character
         if not char then continue end
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp and (ball.Position - hrp.Position).Magnitude < 6 then
+        if hrp and (ball.Position - hrp.Position).Magnitude < 10 then
             return p
         end
     end
@@ -521,7 +480,7 @@ local function mkPage(n)
     p.Size = UDim2.new(1, 0, 1, 0); p.BackgroundTransparency = 1; p.Visible = false
     Pages[n] = p; return p
 end
-local tabNames = {"Catching", "Defense", "Auto", "Movement", "Config"}
+local tabNames = {"Catching", "Defense", "Auto", "Movement", "Config", "Client", "Players"}
 local function mkTab(n, o)
     local b = Instance.new("TextButton", TBH)
     b.LayoutOrder = o; b.Size = UDim2.new(0, 62, 1, -4); b.BackgroundTransparency = 1
@@ -709,12 +668,12 @@ local function Drop(p, txt, opts, di, cb, ord)
     btn.Text = opts[curIdx]
     cb(curIdx)
 
-    -- dl is a child of SG (top-level) so it is NEVER clipped by any scroll frame or page container
-    -- Position uses raw AbsolutePosition so it always opens right below the button
-    local lh = #opts * 28 + 8
+    -- lh: items are 24px tall, UIListLayout adds 2px gap between them, plus 8px top+bottom padding
+    local lh = #opts * 24 + math.max(0, #opts - 1) * 2 + 8
     local dl = Instance.new("Frame", SG)
     dl.BackgroundColor3 = T.card; dl.BorderSizePixel = 0
     dl.ZIndex = 200; dl.Visible = false; dl.Size = UDim2.fromOffset(0, 0)
+    dl.ClipsDescendants = true  -- prevent items overflowing during open/close animation
     corner(dl, UDim.new(0, 7)); mkStroke(dl, T.bdr)
     local dll = Instance.new("UIListLayout", dl)
     dll.Padding = UDim.new(0, 2); dll.SortOrder = Enum.SortOrder.LayoutOrder
@@ -761,9 +720,10 @@ local function Drop(p, txt, opts, di, cb, ord)
 
     conn(btn.MouseButton1Click, function()
         if open then close(); return end
-        open = true
         local ap = btn.AbsolutePosition
         local as = btn.AbsoluteSize
+        if as.X == 0 then return end  -- not yet rendered, skip
+        open = true
         dl.Size = UDim2.fromOffset(as.X, 0)
         dl.Position = UDim2.fromOffset(ap.X, ap.Y + as.Y + 2)
         dl.Visible = true
@@ -787,97 +747,97 @@ local function Drop(p, txt, opts, di, cb, ord)
     end)
 end
 
--- ── ANGLE ENHANCER HOOK ───────────────────────────────────────────────────
-local AngleOn = false; local AngleStr = 6
-local function hookAngle()
-    -- FIX: properly disconnect before clearing, not just table.clear
-    for _, c in ipairs(angleConns) do pcall(function() c:Disconnect() end) end
-    table.clear(angleConns)
-    table.insert(angleConns, UIS.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        if not AngleOn then return end
-        if input.KeyCode ~= Enum.KeyCode.Space then return end
-        local char = LP.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        local delay = math.clamp((1 - AngleStr/10)*0.45 + 0.05, 0.05, 0.5)
-        task.delay(delay, function()
-            if Unloaded or not AngleOn then return end
-            local c2 = LP.Character
-            local h2 = c2 and c2:FindFirstChildOfClass("Humanoid")
-            if h2 then h2:ChangeState(Enum.HumanoidStateType.Jumping) end
-        end)
-    end))
-end
-hookAngle()
+
 
 -- ── LMB / RMB TRACKING ────────────────────────────────────────────────────
 conn(UIS.InputBegan, function(i, gp)
     if gp then return end
-    if i.UserInputType == Enum.UserInputType.MouseButton1 then lmbHeld = true end
     if i.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = true end
 end)
 conn(UIS.InputEnded, function(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 then lmbHeld = false end
     if i.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = false end
 end)
 
 -- ── MAG LOOP ──────────────────────────────────────────────────────────────
+-- CONFIRMED WORKING METHOD (high-unc executors like Xeno/Synapse):
+-- Directly set ball.CFrame to your character position every frame.
+-- This is what real NFL Universe Football scripts (OpenSource, Kali Hub) do.
+-- firetouchinterest was never going to work — the game uses server-side overlap,
+-- not the Touched event. Direct CFrame write is the only client-side approach.
+
+local ARM_PARTS = {"LeftHand","RightHand","LeftLowerArm","RightLowerArm","LeftUpperArm","RightUpperArm"}
+local _armOrigSizes = {}
+local _armOrigTrans = {}
+
+local function saveArmOriginals(char)
+    for _, name in ipairs(ARM_PARTS) do
+        local p = char:FindFirstChild(name)
+        if p and not _armOrigSizes[name] then
+            _armOrigSizes[name] = p.Size
+            _armOrigTrans[name] = p.Transparency
+        end
+    end
+end
+
+local function applyArmReach(char, sz)
+    -- sz slider: 10=normal, 20=subtle, 40=obvious, 50=very long
+    -- Scale arms on ALL axes so they look thick AND long (not just thin stretched noodles)
+    local scale = sz / 10  -- 1.0 at 10, 5.0 at 50
+    for _, name in ipairs(ARM_PARTS) do
+        local p = char:FindFirstChild(name)
+        if p then
+            pcall(function()
+                local orig = _armOrigSizes[name] or p.Size
+                -- Scale Y (length) more than X/Z so it looks like long arms, not balloons
+                p.Size = Vector3.new(orig.X * math.max(1, scale * 0.6), orig.Y * scale, orig.Z * math.max(1, scale * 0.6))
+                p.Transparency = 0
+            end)
+        end
+    end
+    -- Also extend CatchLeft/CatchRight hitbox to match arm reach
+    -- so the catch actually registers further out
+    local catchSz = sz * 2  -- arm at 20 = 40 stud hitbox, arm at 50 = 100 stud hitbox
+    for _, name in ipairs({"CatchLeft", "CatchRight"}) do
+        local p = char:FindFirstChild(name)
+        if p then
+            pcall(function()
+                local sv = Vector3.new(catchSz, catchSz, catchSz)
+                p.Size = sv
+                p.CanTouch = true
+                p.CanCollide = false
+                p.CanQuery = false
+                p.Massless = true
+            end)
+        end
+    end
+end
+
+local function resetArmReach(char)
+    for _, name in ipairs(ARM_PARTS) do
+        local p = char:FindFirstChild(name)
+        if p then
+            pcall(function()
+                if _armOrigSizes[name] then
+                    p.Size = _armOrigSizes[name]
+                    p.Transparency = _armOrigTrans[name] or 0
+                end
+            end)
+        end
+    end
+    _armOrigSizes = {}
+    _armOrigTrans = {}
+end
+
+-- Long Arms loop: visually extend arm parts every frame
 conn(RS.Stepped, function()
     if Unloaded then return end
     local char = LP.Character; if not char then return end
-    local cl = char:FindFirstChild("CatchLeft")
-    local cr = char:FindFirstChild("CatchRight")
-    if not cl or not cr then return end
-
-    local magActive = MagOn and (not MagLMBOnly or lmbHeld)
-    local sz
-
-    if magActive then
-        sz = MagSize
-    elseif ReachOn then
-        sz = ReachSz
-    end
-
-    if sz then
-        local sv = Vector3.new(sz, sz, sz)
-        pcall(function()
-            cl.Size = sv; cr.Size = sv
-            cl.Transparency = 1; cr.Transparency = 1
-            cl.CanCollide = false; cr.CanCollide = false
-            cl.CanQuery = false; cr.CanQuery = false
-            cl.CanTouch = true; cr.CanTouch = true
-            cl.Massless = true; cr.Massless = true
-            cl.Material = Enum.Material.SmoothPlastic
-            cr.Material = Enum.Material.SmoothPlastic
-        end)
+    if ReachOn then
+        saveArmOriginals(char)
+        applyArmReach(char, ReachSz)
     else
-        pcall(function()
-            if cl.Size.X ~= 1 then cl.Size = Vector3.new(1,1,1) end
-            if cr.Size.X ~= 1 then cr.Size = Vector3.new(1,1,1) end
-            cl.Transparency = 0; cr.Transparency = 0
-            cl.CanCollide = true; cr.CanCollide = true
-            cl.CanTouch = true; cr.CanTouch = true
-        end)
-    end
-
-    -- FIX 3: removed task.wait() — was yielding inside Stepped causing desynced touch events
-    -- Both fire/unfires now happen synchronously in the same frame
-    if magActive and typeof(firetouchinterest) == "function" then
-        -- Use cached _ball directly here — avoid rescanning workspace every frame
-        local ball = (_ball and _ball.Parent) and _ball or nil
-        if not ball then
-            for _, v in ipairs(workspace:GetChildren()) do
-                if v.Name == "Football" and v:IsA("BasePart") then ball = v; _ball = v; break end
-            end
-        end
-        if ball then
-            pcall(function()
-                firetouchinterest(cl, ball, 0)
-                firetouchinterest(cr, ball, 0)
-                firetouchinterest(cl, ball, 1)
-                firetouchinterest(cr, ball, 1)
-            end)
+        if next(_armOrigSizes) ~= nil then
+            resetArmReach(char)
         end
     end
 end)
@@ -885,91 +845,26 @@ end)
 -- ── TAB: CATCHING ──────────────────────────────────────────────────────────
 do
     local s = mkScroll(Pages["Catching"])
-    Sec(s, "MAGNETS", 1)
 
-    Tog(s, "Magnets", false, function(v)
-        MagOn = v
-        Notify("Magnets", v and ("ON — hitbox " .. MagSize .. " studs") or "OFF")
-    end, 2, "Expands CatchLeft/CatchRight and fires firetouchinterest on Football each frame. Hold LMB to activate (if LMB Only is on).")
-    Sld(s, "Hitbox Size", 1, 120, 25, 1, function(v)
-        MagSize = v
-    end, 3, "Size of CatchLeft/CatchRight parts. ~20 is subtle, ~50 is league, ~120 is blatant.")
-
-    Sec(s, "OPTIONS", 4)
-    Tog(s, "LMB Only", true, function(v) MagLMBOnly=v end, 5, "When ON, mags only fire while holding left click.")
-
-    Sec(s, "PULL VECTOR", 6)
-    Tog(s, "Pull Vector", false, function(v) PullOn=v; Notify("Pull Vector", v and "ON — hold RMB to pull" or "OFF") end, 7, "Hold RMB to lerp your HRP toward the Football. Only activates while right mouse button is held.")
-    Drop(s, "Pull Mode", {"Smooth (lerp)", "Instant (teleport)"}, 1, function(i) PullMode=i end, 8)
-    Sld(s, "Pull Strength", 1, 8, 3, 1, function(v) PullStr=v end, 9, "Alpha per frame. Keep ≤3 for legit feel.")
-
-    Sec(s, "REACH / AUTO CATCH", 10)
-    Tog(s, "Catch Reach",  false, function(v) ReachOn=v; Notify("Reach", v and "ON" or "OFF") end, 11, "Expands CatchLeft/CatchRight hitbox parts. SmoothPlastic — no glow.")
-    Sld(s, "Reach Size", 2, 120, 20, 1, function(v) ReachSz=v end, 12, "Hitbox radius. 20 = subtle, 60+ = obvious.")
-    Tog(s, "Auto Catch", false, function(v) AutoCatchOn=v; Notify("Auto Catch", v and "ON" or "OFF") end, 13, "Fires firetouchinterest on catch parts when Football is in range. Debounced.")
-    Sld(s, "Catch Distance", 5, 80, 30, 1, function(v) CatchDist=v end, 14, "How close the ball must be to trigger. 30 is safe.")
-
-    Sec(s, "ANGLE ENHANCER", 15)
-    Tog(s, "Angle Enhancer", false, function(v) AngleOn=v; hookAngle(); Notify("Angle", v and "ON" or "OFF") end, 16, "Fires one extra jump per Space press to improve catch angle. Edge-triggered.")
-    Sld(s, "Angle Strength", 1, 10, 6, 1, function(v) AngleStr=v end, 17, "Higher = fires sooner after press.")
-
-    Sec(s, "BALL PREDICTION", 18)
-    Tog(s, "Ball Prediction Line", false, function(v)
-        BallPredOn = v
-        if v then
-            if not ballPredLine then
-                pcall(function()
-                    ballPredLine = Drawing.new("Line")
-                    ballPredLine.Thickness  = 2
-                    ballPredLine.Color      = Color3.fromRGB(100, 200, 255)
-                    ballPredLine.Transparency = 0.25
-                    ballPredLine.Visible    = false
-                end)
-            end
-            if not ballPredDot then
-                pcall(function()
-                    ballPredDot = Drawing.new("Circle")
-                    ballPredDot.Thickness   = 2
-                    ballPredDot.Radius      = 6
-                    ballPredDot.Color       = Color3.fromRGB(100, 200, 255)
-                    ballPredDot.Filled      = true
-                    ballPredDot.Transparency = 0.2
-                    ballPredDot.Visible     = false
-                end)
-            end
-        else
-            pcall(function() if ballPredLine  then ballPredLine.Visible  = false end end)
-            pcall(function() if ballPredDot   then ballPredDot.Visible   = false end end)
+    Sec(s, "LONG ARMS", 1)
+    Tog(s, "Long Arms", false, function(v)
+        ReachOn = v
+        if not v then
+            local char = LP.Character
+            if char then resetArmReach(char) end
         end
-        Notify("Ball Prediction", v and "ON — shows landing point" or "OFF")
-    end, 19, "Simulates ball trajectory using velocity + gravity and draws a line to the predicted landing spot.")
+        Notify("Long Arms", v and "ON — arms extended" or "OFF")
+    end, 2, "Visually stretches your arm parts. You and others can see the longer arms.")
+    Sld(s, "Arm Length", 10, 50, 20, 1, function(v) ReachSz=v end, 3, "10 = normal, 20 = noticeable reach, 40+ = very long. Also expands catch hitbox.")
 
-    Sec(s, "BALL FORCEFIELD", 20)
-    Tog(s, "Ball Forcefield", false, function(v)
-        BallFFOn = v
-        if v then
-            for _, child in ipairs(workspace:GetDescendants()) do
-                if child.Name == "Football" and child:IsA("BasePart") then
-                    makeBallFF(child)
-                end
-            end
-            -- Make all existing FF parts visible
-            for _, part in pairs(_ballFFParts) do
-                if part and part.Parent then
-                    pcall(function() part.Transparency = 0.82 end)
-                end
-            end
-        else
-            -- Hide all FF parts but don't destroy — they stay ready for next toggle
-            for _, part in pairs(_ballFFParts) do
-                if part and part.Parent then
-                    pcall(function() part.Transparency = 1 end)
-                end
-            end
-        end
-        Notify("Ball Forcefield", v and "ON — sphere on each ball" or "OFF")
-    end, 21, "Gold neon sphere on every Football, sized to your mag hitbox. Hides itself when the ball is destroyed.")
+    Sec(s, "PULL VECTOR", 4)
+    Tog(s, "Pull Vector", false, function(v) PullOn=v; Notify("Pull Vector", v and "ON — hold RMB to pull" or "OFF") end, 5, "Hold RMB to move toward the Football.")
+    Drop(s, "Pull Mode", {"Smooth (lerp)", "Instant (teleport)"}, 1, function(i) PullMode=i end, 6)
+    Sld(s, "Pull Strength", 1, 8, 3, 1, function(v) PullStr=v end, 7, "Higher = faster pull.")
+
 end
+
+
 
 
 -- ── TAB: DEFENSE ───────────────────────────────────────────────────────────
@@ -1080,17 +975,17 @@ do
         {
             name="Legit", desc="Safe — league-friendly mags + angle",
             col=T.legit,
-            st={MagOn=true,  MagSize=20, ReachOn=false, AngleOn=true, AngleStr=6, AutoGetUpOn=true, WS=16, JP=50}
+            st={ ReachOn=false, AutoGetUpOn=true, WS=16, JP=50}
         },
         {
             name="League", desc="Balanced — mags + aimbot + reach + ESP",
             col=T.league,
-            st={MagOn=true, MagSize=50, ReachOn=true, ReachSz=22, AngleOn=true, AngleStr=8, AutoGetUpOn=true, AutoFollowOn=true, InfStamLowOn=true, WS=16, JP=50}
+            st={ReachOn=true, ReachSz=22, AutoGetUpOn=true, AutoFollowOn=true, InfStamLowOn=true, WS=16, JP=50}
         },
         {
             name="Blatant", desc="Everything on",
             col=T.blatant,
-            st={MagOn=true, MagSize=120, ReachOn=true, ReachSz=55, AutoCatchOn=true, CatchDist=40, AutoGetUpOn=true, AutoFollowOn=true, TackleReachOn=true, TackleReachSz=30, AntiBlock1On=true, InfStamHighOn=true, WS=22, JP=80}
+            st={ReachOn=true, ReachSz=55, AutoGetUpOn=true, AutoFollowOn=true, TackleReachOn=true, TackleReachSz=30, AntiBlock1On=true, InfStamHighOn=true, WS=22, JP=80}
         },
     }
     Sec(s, "PRESETS", 1)
@@ -1120,15 +1015,9 @@ do
         conn(ab.MouseLeave, function() tw(ab,{BackgroundColor3=Color3.fromRGB(math.floor(pr.col.R*255*0.13),math.floor(pr.col.G*255*0.13),math.floor(pr.col.B*255*0.13))},.1) end)
         conn(ab.MouseButton1Click, function()
             local st = pr.st
-            if st.MagOn          ~= nil then MagOn=st.MagOn end
             -- FIX: use ~= nil check for numbers so 0 values aren't skipped
-            if st.MagSize        ~= nil then MagSize=st.MagSize end
             if st.ReachOn        ~= nil then ReachOn=st.ReachOn end
             if st.ReachSz        ~= nil then ReachSz=st.ReachSz end
-            if st.AutoCatchOn    ~= nil then AutoCatchOn=st.AutoCatchOn end
-            if st.CatchDist      ~= nil then CatchDist=st.CatchDist end
-            if st.AngleOn        ~= nil then AngleOn=st.AngleOn; hookAngle() end
-            if st.AngleStr       ~= nil then AngleStr=st.AngleStr end
             if st.AutoGetUpOn    ~= nil then AutoGetUpOn=st.AutoGetUpOn end
             if st.AutoFollowOn   ~= nil then AutoFollowOn=st.AutoFollowOn end
             if st.TackleReachOn  ~= nil then TackleReachOn=st.TackleReachOn end
@@ -1181,8 +1070,7 @@ do
     local function saveC()
         if typeof(writefile)~="function" then Notify("Config","writefile unavailable"); return end
         pcall(writefile, cf, encJ({
-            MagOn=MagOn, MagSize=MagSize, ReachOn=ReachOn, ReachSz=ReachSz,
-            AngleOn=AngleOn, AngleStr=AngleStr,
+            ReachOn=ReachOn, ReachSz=ReachSz,
             WS=WS, JP=JP, InfStamHighOn=InfStamHighOn, InfStamLowOn=InfStamLowOn,
             AutoGetUpOn=AutoGetUpOn, AutoFollowOn=AutoFollowOn,
             TackleReachOn=TackleReachOn, TackleReachSz=TackleReachSz
@@ -1195,12 +1083,8 @@ do
         local ok, d = pcall(readfile, cf)
         if not (ok and d and #d > 2) then Notify("Config","No save found"); return end
         local data = decJ(d)
-        if data.MagOn        ~= nil then MagOn        = data.MagOn        end
-        if data.MagSize      ~= nil then MagSize      = data.MagSize      end
         if data.ReachOn      ~= nil then ReachOn      = data.ReachOn      end
         if data.ReachSz      ~= nil then ReachSz      = data.ReachSz      end
-        if data.AngleOn      ~= nil then AngleOn      = data.AngleOn; hookAngle() end
-        if data.AngleStr     ~= nil then AngleStr     = data.AngleStr     end
         if data.WS           ~= nil then WS           = data.WS           end
         if data.JP           ~= nil then JP           = data.JP           end
         if data.InfStamHighOn ~= nil then InfStamHighOn = data.InfStamHighOn end
@@ -1280,13 +1164,386 @@ conn(BMin.MouseButton1Click, function()
     end
 end)
 
+-- ── TAB: CLIENT ─────────────────────────────────────────────────────────────
+do
+    local pg = Pages["Client"]
+    local root = Instance.new("ScrollingFrame", pg)
+    root.Size = UDim2.new(1, 0, 1, 0)
+    root.BackgroundTransparency = 1
+    root.BorderSizePixel = 0
+    root.CanvasSize = UDim2.new(0, 0, 0, 0)
+    root.ScrollingDirection = Enum.ScrollingDirection.Y
+    hideBar(root)
+    local rootL = Instance.new("UIListLayout", root)
+    rootL.Padding = UDim.new(0, 8)
+    rootL.SortOrder = Enum.SortOrder.LayoutOrder
+    local rootP = Instance.new("UIPadding", root)
+    rootP.PaddingLeft  = UDim.new(0, 12); rootP.PaddingRight  = UDim.new(0, 12)
+    rootP.PaddingTop   = UDim.new(0, 10); rootP.PaddingBottom = UDim.new(0, 10)
+    conn(rootL:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        root.CanvasSize = UDim2.new(0, 0, 0, rootL.AbsoluteContentSize.Y + 16)
+    end)
+
+    local sessionStart = tick()
+
+    local function mkThumb(parent, userId, sz)
+        local img = Instance.new("ImageLabel", parent)
+        img.Size = UDim2.fromOffset(sz, sz)
+        img.BackgroundColor3 = T.btn
+        img.BorderSizePixel = 0
+        img.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(userId) .. "&width=150&height=150&format=png"
+        img.ScaleType = Enum.ScaleType.Crop
+        Instance.new("UICorner", img).CornerRadius = UDim.new(1, 0)
+        return img
+    end
+
+    -- ── CLIENT CARD ──────────────────────────────────────────────────────
+    local cc = Instance.new("Frame", root)
+    cc.LayoutOrder = 1
+    cc.Size = UDim2.new(1, 0, 0, 148)
+    cc.BackgroundColor3 = T.card
+    cc.BorderSizePixel = 0
+    Instance.new("UICorner", cc).CornerRadius = UDim.new(0, 10)
+    mkStroke(cc, T.acc)
+
+    local cBar = Instance.new("Frame", cc)
+    cBar.Size = UDim2.new(0, 3, 1, -16); cBar.Position = UDim2.fromOffset(8, 8)
+    cBar.BackgroundColor3 = T.acc; cBar.BorderSizePixel = 0
+    Instance.new("UICorner", cBar).CornerRadius = UDim.new(1, 0)
+
+    -- Big PFP
+    mkThumb(cc, LP.UserId, 72).Position = UDim2.fromOffset(20, 38)
+
+    -- Display name
+    local cDisplay = Instance.new("TextLabel", cc)
+    cDisplay.Position = UDim2.fromOffset(104, 16)
+    cDisplay.Size = UDim2.new(1, -112, 0, 20)
+    cDisplay.BackgroundTransparency = 1
+    cDisplay.Font = Enum.Font.GothamBold
+    cDisplay.TextSize = 15
+    cDisplay.TextColor3 = T.cream
+    cDisplay.TextXAlignment = Enum.TextXAlignment.Left
+    cDisplay.TextTruncate = Enum.TextTruncate.AtEnd
+    cDisplay.Text = LP.DisplayName
+
+    -- Username
+    local cUser = Instance.new("TextLabel", cc)
+    cUser.Position = UDim2.fromOffset(104, 38)
+    cUser.Size = UDim2.new(1, -112, 0, 14)
+    cUser.BackgroundTransparency = 1
+    cUser.Font = Enum.Font.Gotham
+    cUser.TextSize = 10
+    cUser.TextColor3 = T.TSub
+    cUser.TextXAlignment = Enum.TextXAlignment.Left
+    cUser.Text = "@" .. LP.Name
+
+    -- User ID
+    local cUID = Instance.new("TextLabel", cc)
+    cUID.Position = UDim2.fromOffset(104, 55)
+    cUID.Size = UDim2.new(1, -112, 0, 13)
+    cUID.BackgroundTransparency = 1
+    cUID.Font = Enum.Font.Gotham
+    cUID.TextSize = 9
+    cUID.TextColor3 = T.TD
+    cUID.TextXAlignment = Enum.TextXAlignment.Left
+    cUID.Text = "ID: " .. tostring(LP.UserId)
+
+    -- Account age
+    local cAge = Instance.new("TextLabel", cc)
+    cAge.Position = UDim2.fromOffset(104, 70)
+    cAge.Size = UDim2.new(1, -112, 0, 13)
+    cAge.BackgroundTransparency = 1
+    cAge.Font = Enum.Font.Gotham
+    cAge.TextSize = 9
+    cAge.TextColor3 = T.TD
+    cAge.TextXAlignment = Enum.TextXAlignment.Left
+    cAge.Text = "Account age: " .. tostring(LP.AccountAge) .. " days"
+
+    -- Game name
+    local cGame = Instance.new("TextLabel", cc)
+    cGame.Position = UDim2.fromOffset(104, 87)
+    cGame.Size = UDim2.new(1, -112, 0, 13)
+    cGame.BackgroundTransparency = 1
+    cGame.Font = Enum.Font.Gotham
+    cGame.TextSize = 9
+    cGame.TextColor3 = T.TD
+    cGame.TextXAlignment = Enum.TextXAlignment.Left
+    cGame.TextTruncate = Enum.TextTruncate.AtEnd
+    cGame.Text = "NFL Universe Football"
+    pcall(function()
+        cGame.Text = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+    end)
+
+    -- Session timer
+    local cSession = Instance.new("TextLabel", cc)
+    cSession.Position = UDim2.fromOffset(104, 104)
+    cSession.Size = UDim2.new(1, -112, 0, 13)
+    cSession.BackgroundTransparency = 1
+    cSession.Font = Enum.Font.GothamBold
+    cSession.TextSize = 10
+    cSession.TextColor3 = T.acc
+    cSession.TextXAlignment = Enum.TextXAlignment.Left
+    cSession.Text = "Session: 0:00"
+
+    -- Server ID
+    local cJobId = Instance.new("TextLabel", cc)
+    cJobId.Position = UDim2.fromOffset(104, 120)
+    cJobId.Size = UDim2.new(1, -112, 0, 12)
+    cJobId.BackgroundTransparency = 1
+    cJobId.Font = Enum.Font.Gotham
+    cJobId.TextSize = 8
+    cJobId.TextColor3 = T.TD
+    cJobId.TextXAlignment = Enum.TextXAlignment.Left
+    cJobId.TextTruncate = Enum.TextTruncate.AtEnd
+    cJobId.Text = "Server: " .. tostring(game.JobId):sub(1, 22) .. "..."
+
+    -- Separator line
+    local sep = Instance.new("Frame", cc)
+    sep.Position = UDim2.fromOffset(20, 135)
+    sep.Size = UDim2.new(1, -40, 0, 1)
+    sep.BackgroundColor3 = T.sep; sep.BorderSizePixel = 0
+
+    -- Place ID + player count row
+    local cPlaceId = Instance.new("TextLabel", cc)
+    cPlaceId.Position = UDim2.fromOffset(20, 139)
+    cPlaceId.Size = UDim2.new(0.5, 0, 0, 11)
+    cPlaceId.BackgroundTransparency = 1
+    cPlaceId.Font = Enum.Font.Gotham
+    cPlaceId.TextSize = 8
+    cPlaceId.TextColor3 = T.TD
+    cPlaceId.TextXAlignment = Enum.TextXAlignment.Left
+    cPlaceId.Text = "PlaceId: " .. tostring(game.PlaceId)
+
+    local cPop = Instance.new("TextLabel", cc)
+    cPop.AnchorPoint = Vector2.new(1, 0)
+    cPop.Position = UDim2.new(1, -14, 0, 139)
+    cPop.Size = UDim2.new(0.4, 0, 0, 11)
+    cPop.BackgroundTransparency = 1
+    cPop.Font = Enum.Font.Gotham
+    cPop.TextSize = 8
+    cPop.TextColor3 = T.TD
+    cPop.TextXAlignment = Enum.TextXAlignment.Right
+    cPop.Text = #Players:GetPlayers() .. " / " .. Players.MaxPlayers .. " players"
+
+    -- Live updates
+    task.spawn(function()
+        while not Unloaded do
+            task.wait(1)
+            local elapsed = math.floor(tick() - sessionStart)
+            local m = math.floor(elapsed / 60)
+            local s2 = elapsed % 60
+            if cSession and cSession.Parent then
+                cSession.Text = string.format("Session: %d:%02d", m, s2)
+            end
+            if cPop and cPop.Parent then
+                cPop.Text = #Players:GetPlayers() .. " / " .. Players.MaxPlayers .. " players"
+            end
+        end
+    end)
+
+    -- ── STAT TILES ───────────────────────────────────────────────────────
+    local tilesLbl = Instance.new("TextLabel", root)
+    tilesLbl.LayoutOrder = 2
+    tilesLbl.Size = UDim2.new(1, 0, 0, 14)
+    tilesLbl.BackgroundTransparency = 1
+    tilesLbl.Font = Enum.Font.GothamBold
+    tilesLbl.TextSize = 9
+    tilesLbl.TextColor3 = T.TD
+    tilesLbl.TextXAlignment = Enum.TextXAlignment.Left
+    tilesLbl.Text = "EXECUTOR & ENVIRONMENT"
+
+    local tileRow = Instance.new("Frame", root)
+    tileRow.LayoutOrder = 3
+    tileRow.Size = UDim2.new(1, 0, 0, 52)
+    tileRow.BackgroundTransparency = 1
+    tileRow.BorderSizePixel = 0
+    local tileRowL = Instance.new("UIListLayout", tileRow)
+    tileRowL.FillDirection = Enum.FillDirection.Horizontal
+    tileRowL.Padding = UDim.new(0, 6)
+    tileRowL.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local function mkTile(parent, order, label, value, col)
+        local t = Instance.new("Frame", parent)
+        t.LayoutOrder = order
+        t.Size = UDim2.new(0.5, -3, 1, 0)
+        t.BackgroundColor3 = T.card
+        t.BorderSizePixel = 0
+        Instance.new("UICorner", t).CornerRadius = UDim.new(0, 8)
+        mkStroke(t, T.bdr)
+        local lbl = Instance.new("TextLabel", t)
+        lbl.Size = UDim2.new(1, -16, 0, 14)
+        lbl.Position = UDim2.fromOffset(8, 8)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 8
+        lbl.TextColor3 = col or T.TD
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Text = label
+        local val = Instance.new("TextLabel", t)
+        val.Size = UDim2.new(1, -16, 0, 16)
+        val.Position = UDim2.fromOffset(8, 26)
+        val.BackgroundTransparency = 1
+        val.Font = Enum.Font.GothamBold
+        val.TextSize = 11
+        val.TextColor3 = T.cream
+        val.TextXAlignment = Enum.TextXAlignment.Left
+        val.TextTruncate = Enum.TextTruncate.AtEnd
+        val.Text = value
+        return t
+    end
+
+    -- Detect executor name best-effort
+    local execName = "Unknown"
+    if identifyexecutor then pcall(function() execName = identifyexecutor() end)
+    elseif syn then execName = "Synapse X"
+    elseif KRNL_LOADED then execName = "KRNL"
+    elseif getexecutorname then pcall(function() execName = getexecutorname() end) end
+
+    mkTile(tileRow, 1, "EXECUTOR",    execName,                         T.acc)
+    mkTile(tileRow, 2, "PING",        tostring(math.floor(LP:GetNetworkPing() * 1000)) .. " ms", T.online)
+
+    local tileRow2 = Instance.new("Frame", root)
+    tileRow2.LayoutOrder = 4
+    tileRow2.Size = UDim2.new(1, 0, 0, 52)
+    tileRow2.BackgroundTransparency = 1
+    tileRow2.BorderSizePixel = 0
+    local tileRow2L = Instance.new("UIListLayout", tileRow2)
+    tileRow2L.FillDirection = Enum.FillDirection.Horizontal
+    tileRow2L.Padding = UDim.new(0, 6)
+    tileRow2L.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local pingTile = mkTile(tileRow2, 1, "PLACE ID",  tostring(game.PlaceId), T.TD)
+    mkTile(tileRow2, 2, "REGION",     tostring(game:GetService("LocalizationService").RobloxLocaleId or "N/A"), T.TD)
+
+    -- Ping live update
+    task.spawn(function()
+        while not Unloaded do
+            task.wait(3)
+            pcall(function()
+                local pingLbl = tileRow:GetChildren()[2] and tileRow:GetChildren()[2]:FindFirstChildOfClass("TextLabel")
+                -- find the val label (second TextLabel)
+                local labels = tileRow:GetChildren()[2] and tileRow:GetChildren()[2]:GetChildren()
+                if labels then
+                    for _, l in ipairs(labels) do
+                        if l:IsA("TextLabel") and l.TextSize == 11 then
+                            l.Text = tostring(math.floor(LP:GetNetworkPing() * 1000)) .. " ms"
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+-- ── TAB: PLAYERS ─────────────────────────────────────────────────────────────
+do
+    local pg = Pages["Players"]
+    local root = Instance.new("ScrollingFrame", pg)
+    root.Size = UDim2.new(1, 0, 1, 0)
+    root.BackgroundTransparency = 1
+    root.BorderSizePixel = 0
+    root.CanvasSize = UDim2.new(0, 0, 0, 0)
+    root.ScrollingDirection = Enum.ScrollingDirection.Y
+    hideBar(root)
+    local rootL = Instance.new("UIListLayout", root)
+    rootL.Padding = UDim.new(0, 6)
+    rootL.SortOrder = Enum.SortOrder.LayoutOrder
+    local rootP = Instance.new("UIPadding", root)
+    rootP.PaddingLeft  = UDim.new(0, 12); rootP.PaddingRight  = UDim.new(0, 12)
+    rootP.PaddingTop   = UDim.new(0, 10); rootP.PaddingBottom = UDim.new(0, 10)
+    conn(rootL:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        root.CanvasSize = UDim2.new(0, 0, 0, rootL.AbsoluteContentSize.Y + 16)
+    end)
+
+    local function mkThumb(parent, userId, sz)
+        local img = Instance.new("ImageLabel", parent)
+        img.Size = UDim2.fromOffset(sz, sz)
+        img.BackgroundColor3 = T.btn
+        img.BorderSizePixel = 0
+        img.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(userId) .. "&width=150&height=150&format=png"
+        img.ScaleType = Enum.ScaleType.Crop
+        Instance.new("UICorner", img).CornerRadius = UDim.new(1, 0)
+        return img
+    end
+
+    local function copyFlash(btn, text)
+        btn.Text = "✓ Copied"
+        btn.BackgroundColor3 = T.online
+        task.delay(1.2, function()
+            if btn and btn.Parent then
+                btn.Text = "Copy"
+                btn.BackgroundColor3 = T.btn
+            end
+        end)
+        pcall(setclipboard, text)
+    end
+
+    local playerCards = {}
+
+    local function mkPlayerCard(p)
+        if playerCards[p.UserId] then return end
+        local card = Instance.new("Frame", root)
+        card.Size = UDim2.new(1, 0, 0, 62)
+        card.BackgroundColor3 = T.card
+        card.BorderSizePixel = 0
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+        mkStroke(card, p == LP and T.acc or T.bdr)
+        playerCards[p.UserId] = card
+
+        mkThumb(card, p.UserId, 42).Position = UDim2.fromOffset(10, 10)
+
+        local dn = Instance.new("TextLabel", card)
+        dn.Position = UDim2.fromOffset(62, 9)
+        dn.Size = UDim2.new(1, -150, 0, 16)
+        dn.BackgroundTransparency = 1
+        dn.Font = Enum.Font.GothamBold
+        dn.TextSize = 12
+        dn.TextColor3 = p == LP and T.acc or T.cream
+        dn.TextXAlignment = Enum.TextXAlignment.Left
+        dn.TextTruncate = Enum.TextTruncate.AtEnd
+        dn.Text = p.DisplayName .. (p == LP and "  ★" or "")
+
+        local un = Instance.new("TextLabel", card)
+        un.Position = UDim2.fromOffset(62, 27)
+        un.Size = UDim2.new(1, -150, 0, 13)
+        un.BackgroundTransparency = 1
+        un.Font = Enum.Font.Gotham
+        un.TextSize = 9
+        un.TextColor3 = T.TSub
+        un.TextXAlignment = Enum.TextXAlignment.Left
+        un.Text = "@" .. p.Name
+
+        local copyBtn = Instance.new("TextButton", card)
+        copyBtn.AnchorPoint = Vector2.new(1, 0.5)
+        copyBtn.Position = UDim2.new(1, -10, 0.5, 0)
+        copyBtn.Size = UDim2.fromOffset(54, 22)
+        copyBtn.BackgroundColor3 = T.btn
+        copyBtn.BorderSizePixel = 0
+        copyBtn.Font = Enum.Font.GothamMedium
+        copyBtn.TextSize = 9
+        copyBtn.TextColor3 = T.TSub
+        copyBtn.Text = "Copy"
+        Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+        conn(copyBtn.MouseEnter, function() tw(copyBtn, {BackgroundColor3=T.btnH, TextColor3=T.TP}, .1) end)
+        conn(copyBtn.MouseLeave, function() tw(copyBtn, {BackgroundColor3=T.btn,  TextColor3=T.TSub}, .1) end)
+        conn(copyBtn.MouseButton1Click, function() copyFlash(copyBtn, p.Name) end)
+    end
+
+    local function removePlayerCard(p)
+        if playerCards[p.UserId] then
+            pcall(function() playerCards[p.UserId]:Destroy() end)
+            playerCards[p.UserId] = nil
+        end
+    end
+
+    for _, p in ipairs(Players:GetPlayers()) do mkPlayerCard(p) end
+    conn(Players.PlayerAdded,    function(p) mkPlayerCard(p)    end)
+    conn(Players.PlayerRemoving, function(p) removePlayerCard(p) end)
+end
+
 -- ── UNLOAD ─────────────────────────────────────────────────────────────────
 local function unload()
     if Unloaded then return end; Unloaded = true
-    for _, c in ipairs(angleConns) do pcall(function() c:Disconnect() end) end
-    if ballPredLine  then pcall(function() ballPredLine:Remove()  end); ballPredLine  = nil end
-    if ballPredDot   then pcall(function() ballPredDot:Remove()   end); ballPredDot   = nil end
-    for ball, _ in pairs(_ballFFParts) do destroyBallFF(ball) end
     if flyBV then
         pcall(function()
             -- FIX: also clean up the leaked DuneFlyAtt attachment
@@ -1300,6 +1557,7 @@ local function unload()
         flyBV = nil
     end
     if LP.Character then
+        resetArmReach(LP.Character)
         for _, n in ipairs({"CatchLeft","CatchRight"}) do
             local pt = LP.Character:FindFirstChild(n)
             if pt then pcall(function() pt.Size=Vector3.new(1,1,1); pt.Transparency=0; pt.CanCollide=true; pt.CanQuery=true end) end
@@ -1331,55 +1589,6 @@ conn(RS.RenderStepped, function()
     local myHRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
     local ball  = getBall()
 
-
-    -- ── BALL PREDICTION LINE ──────────────────────────────────────────────
-    if BallPredOn and ball and ballPredLine and ballPredDot then
-        local vel = ball.AssemblyLinearVelocity
-        if vel.Magnitude > 4 then
-            local GRAVITY   = Vector3.new(0, -workspace.Gravity, 0)
-            local SIM_STEPS = 30
-            local SIM_DT    = 0.06
-            local pos = ball.Position
-            local v   = vel
-            local landPos = nil
-
-            for _ = 1, SIM_STEPS do
-                v   = v + GRAVITY * SIM_DT
-                pos = pos + v * SIM_DT
-                if pos.Y < 3 then
-                    landPos = pos
-                    break
-                end
-            end
-            if not landPos then landPos = pos end
-
-            local bSP, bOn, bD = Cam:WorldToViewportPoint(ball.Position)
-            local lSP, lOn, lD = Cam:WorldToViewportPoint(landPos)
-
-            if bOn and lOn and bD > 0 and lD > 0 then
-                pcall(function()
-                    ballPredLine.From    = Vector2.new(bSP.X, bSP.Y)
-                    ballPredLine.To      = Vector2.new(lSP.X, lSP.Y)
-                    ballPredLine.Visible = true
-                    ballPredDot.Position = Vector2.new(lSP.X, lSP.Y)
-                    ballPredDot.Visible  = true
-                end)
-            else
-                pcall(function()
-                    ballPredLine.Visible = false
-                    ballPredDot.Visible  = false
-                end)
-            end
-        else
-            pcall(function()
-                ballPredLine.Visible = false
-                ballPredDot.Visible  = false
-            end)
-        end
-    elseif ballPredLine then
-        pcall(function() ballPredLine.Visible = false end)
-        pcall(function() if ballPredDot then ballPredDot.Visible = false end end)
-    end
 end)
 
 -- ── HEARTBEAT ──────────────────────────────────────────────────────────────
@@ -1451,49 +1660,28 @@ conn(RS.Heartbeat, function()
     end
 
     -- ── PULL VECTOR ───────────────────────────────────────────────────────
-    -- FIX 4: added velocity prediction so you arrive at where the ball WILL be, not where it was
-    if PullOn and rmbHeld and ball and hrp then
-        local ballVel = ball.AssemblyLinearVelocity
-        local ballInAir = ballVel.Magnitude > 8 and getBallCarrier() == nil
-        if ballInAir then
-            local dist = (ball.Position - hrp.Position).Magnitude
-            if dist > 3 and dist <= 60 then
-                if PullMode == 2 then
-                    pcall(function()
-                        local predictedPos = ball.Position + ballVel * 0.12
-                        hrp.CFrame = CFrame.new(predictedPos + Vector3.new(0, 2, 0))
-                    end)
-                else
-                    local alpha = math.clamp(PullStr * 0.01, 0.01, 0.08)
-                    local predictedPos = ball.Position + ballVel * 0.12
-                    pcall(function()
-                        hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(predictedPos + Vector3.new(0, 2, 0)), alpha)
-                    end)
-                end
+    local ballInAir = ball and getBallCarrier() == nil and ball.AssemblyLinearVelocity.Magnitude > 3
+    if PullOn and rmbHeld and ball and hrp and ballInAir then
+        local ballVel  = ball.AssemblyLinearVelocity
+        local dist     = (ball.Position - hrp.Position).Magnitude
+        -- predict 180ms ahead so you arrive where ball will be
+        local predicted = ball.Position + ballVel * 0.18 + Vector3.new(0, 2, 0)
+        if PullMode == 2 then
+            -- Instant: always TP, no ballInAir check, no distance cap
+            pcall(function()
+                hrp.CFrame = CFrame.new(predicted)
+            end)
+        else
+            -- Smooth: much stronger alpha so it actually keeps up
+            if dist > 2 then
+                local alpha = math.clamp(PullStr * 0.06, 0.06, 0.55)
+                pcall(function()
+                    hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(predicted), alpha)
+                end)
             end
         end
     end
 
-    -- ── AUTO CATCH ────────────────────────────────────────────────────────
-    if AutoCatchOn and char and ball and hrp and typeof(firetouchinterest)=="function" then
-        local cl = char:FindFirstChild("CatchLeft")
-        local cr = char:FindFirstChild("CatchRight")
-        if cl and cr then
-            local dist = (ball.Position - hrp.Position).Magnitude
-            if dist <= CatchDist then
-                local now = tick()
-                if now - catchDB >= 0.35 then
-                    catchDB = now
-                    task.spawn(function()
-                        pcall(function()
-                            firetouchinterest(cl,ball,0); firetouchinterest(cr,ball,0)
-                            firetouchinterest(cl,ball,1); firetouchinterest(cr,ball,1)
-                        end)
-                    end)
-                end
-            end
-        end
-    end
 
     -- ── TACKLE REACH ──────────────────────────────────────────────────────
     if char and TackleReachOn then
@@ -1512,22 +1700,22 @@ conn(RS.Heartbeat, function()
         end
     end
 
-    -- ── AUTO FOLLOW / TACKLE ──────────────────────────────────────────────
+    -- ── AUTO FOLLOW / AUTO SACK ───────────────────────────────────────────
     if hrp then
         local carrier = getBallCarrier()
         if carrier and carrier ~= LP then
             local cHRP = carrier.Character and carrier.Character:FindFirstChild("HumanoidRootPart")
             if cHRP then
                 local dist = (cHRP.Position - hrp.Position).Magnitude
-                if AutoFollowOn and dist <= FollowRange then
+                if AutoFollowOn then
                     if TPTackleOn then
                         pcall(function() hrp.CFrame = CFrame.new(cHRP.Position + Vector3.new(0,0,2)) end)
                     else
-                        pcall(function() hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(cHRP.Position + Vector3.new(0,0,2)), .2) end)
+                        local alpha = math.clamp(0.15 + (1 / math.max(dist, 1)) * 2, 0.15, 0.5)
+                        pcall(function() hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(cHRP.Position + Vector3.new(0,0,2)), alpha) end)
                     end
                 end
                 if AutoSackOn and dist <= 25 then
-                    -- team check: only sack opponents, never teammates
                     local carrierIsEnemy = carrier.Team == nil or carrier.Team ~= LP.Team
                     if carrierIsEnemy then
                         pcall(function() hrp.CFrame = CFrame.new(cHRP.Position + Vector3.new(0,0,1.5)) end)
@@ -1560,45 +1748,4 @@ conn(RS.Heartbeat, function()
         end
     end
 
-    -- ── BALL FORCEFIELD ───────────────────────────────────────────────────
-    -- FIX 5: size is only updated when it actually changes, transparency controls visibility
-    if BallFFOn then
-        local sz = MagOn and MagSize or (ReachOn and ReachSz or 10)
-        for b, part in pairs(_ballFFParts) do
-            if b and b.Parent and part and part.Parent then
-                pcall(function()
-                    part.CFrame = CFrame.new(b.Position)
-                    if part.Size.X ~= sz then
-                        part.Size = Vector3.new(sz, sz, sz)
-                    end
-                    if part.Transparency ~= 0.82 then
-                        part.Transparency = 0.82
-                    end
-                end)
-            elseif not (b and b.Parent) then
-                destroyBallFF(b)
-            end
-        end
-    end
-end)
-
--- ── INIT ───────────────────────────────────────────────────────────────────
-task.defer(function()
-    local cb = Tabs["Catching"]; if cb then
-        TUL.Size     = UDim2.fromOffset(cb.AbsoluteSize.X, 2)
-        TUL.Position = UDim2.new(0, cb.AbsolutePosition.X - TBR.AbsolutePosition.X, 1, -2)
-        Tabs["Catching"].TextColor3 = T.acc
-    end
-    Pages["Catching"].Visible = true
-    task.wait()
-    for _, page in pairs(Pages) do
-        local sf = page:FindFirstChildOfClass("ScrollingFrame")
-        if sf then
-            local ll = sf:FindFirstChildOfClass("UIListLayout")
-            if ll then sf.CanvasSize = UDim2.new(0,0,0, ll.AbsoluteContentSize.Y+12) end
-        end
-    end
-end)
-task.delay(.7, function()
-    Notify("Dune V2", "NFL Universe Football — [Insert] to toggle", 4)
-end)
+end) -- end Heartbeat
