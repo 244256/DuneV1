@@ -1,0 +1,1604 @@
+-- ██████╗ ██╗   ██╗███╗   ██╗███████╗    ██╗   ██╗██████╗
+-- ██╔══██╗██║   ██║████╗  ██║██╔════╝    ██║   ██║╚════██╗
+-- ██║  ██║██║   ██║██╔██╗ ██║█████╗      ██║   ██║ █████╔╝
+-- ██║  ██║██║   ██║██║╚██╗██║██╔══╝      ╚██╗ ██╔╝██╔═══╝
+-- ██████╔╝╚██████╔╝██║ ╚████║███████╗     ╚████╔╝ ███████╗
+-- ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚══════╝      ╚═══╝  ╚══════╝
+-- NFL Universe Football | Made by Dune | Fixed by Claude
+
+-- ── CLEANUP ────────────────────────────────────────────────────────────────
+do
+    local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then
+        for _,v in ipairs(pg:GetChildren()) do
+            if v.Name == "Dune_V2_UFB" then v:Destroy() end
+        end
+    end
+    pcall(function() game:GetService("CoreGui"):FindFirstChild("Dune_V2_UFB"):Destroy() end)
+end
+task.wait(0.05)
+
+-- ── ANTI CHEAT BYPASS ─────────────────────────────────────────────────────
+task.spawn(function()
+    pcall(function()
+        for _, v in pairs(getgc()) do
+            if type(v) == "function" then
+                local ok, env = pcall(getfenv, v)
+                if ok and env and env.script then
+                    local ok2, sc = pcall(function() return env.script end)
+                    if ok2 and sc then
+                        local ok3, name = pcall(function() return sc.Name end)
+                        if ok3 and name == "AntiSpeedHackV3" then
+                            local ok4, info = pcall(debug.getinfo, v)
+                            if ok4 and info and info.name == "KickPlayerForHacking" then
+                                hookfunction(v, function(...) end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+pcall(function()
+    local cmodel = game:GetService("Players").LocalPlayer
+        :WaitForChild("PlayerGui", 3)
+        :FindFirstChild("ClientModel")
+    if cmodel then
+        local av3 = cmodel:FindFirstChild("AntiSpeedHackV3")
+        if av3 then av3:Destroy() end
+    end
+end)
+
+-- FIX: guard _acOld call so if pcall fails mid-setup we don't crash
+local _acOld
+pcall(function()
+    local rng = Random.new()
+    _acOld = hookmetamethod(game, "__index", function(self, key)
+        if not checkcaller() then
+            if key == "WalkSpeed" then return 16 end
+            if key == "JumpPower" then return 50 end
+            if tostring(self) == "Football" and (key == "CFrame" or key == "Position") then
+                return Vector3.new(rng:NextNumber(1,150), rng:NextNumber(1,150), rng:NextNumber(1,150))
+            end
+        end
+        if _acOld then return _acOld(self, key) end
+        return nil
+    end)
+end)
+
+local Players   = game:GetService("Players")
+local UIS       = game:GetService("UserInputService")
+local RS        = game:GetService("RunService")
+local TS_       = game:GetService("TweenService")
+local Cam       = workspace.CurrentCamera
+local LP        = Players.LocalPlayer
+
+-- ── THEME ──────────────────────────────────────────────────────────────────
+local T = {
+    bg      = Color3.fromRGB(10,11,14),
+    bgS     = Color3.fromRGB(14,15,20),
+    panel   = Color3.fromRGB(18,20,27),
+    card    = Color3.fromRGB(22,25,34),
+    btn     = Color3.fromRGB(28,31,44),
+    btnH    = Color3.fromRGB(36,40,58),
+    acc     = Color3.fromRGB(220,170,80),
+    accDim  = Color3.fromRGB(160,118,46),
+    accGlow = Color3.fromRGB(255,210,110),
+    cream   = Color3.fromRGB(240,235,218),
+    online  = Color3.fromRGB(90,220,120),
+    off     = Color3.fromRGB(220,80,80),
+    TP      = Color3.fromRGB(240,232,210),
+    TSub    = Color3.fromRGB(155,142,108),
+    TD      = Color3.fromRGB(90,80,52),
+    bdr     = Color3.fromRGB(44,38,24),
+    sep     = Color3.fromRGB(28,25,16),
+    legit   = Color3.fromRGB(90,210,120),
+    league  = Color3.fromRGB(220,170,80),
+    blatant = Color3.fromRGB(220,80,80),
+}
+
+-- ── STATE ──────────────────────────────────────────────────────────────────
+local MagOn         = false
+local MagSize       = 25
+local MagLMBOnly    = true
+local lmbHeld       = false
+local rmbHeld       = false
+
+local PullOn        = false
+local PullStr       = 3
+local PullMode      = 1
+
+local BallPredOn    = false
+local ballPredLine  = nil
+local ballPredDot   = nil
+
+local ReachOn       = false
+local ReachSz       = 20
+local AutoCatchOn   = false
+local CatchDist     = 30
+local catchDB       = 0
+
+local AutoFollowOn  = false
+local FollowRange   = 20
+local TackleReachOn = false
+local TackleReachSz = 12
+local TPTackleOn    = false
+local AntiBlock1On  = false
+local AntiBlock2On  = false
+local AutoSackOn    = false
+
+local AutoGetUpOn   = false
+local InfStamHighOn = false
+local InfStamLowOn  = false
+local PerfJumpOn    = false
+local AutoCaptainOn = false
+
+local WS            = 16
+local JP            = 50
+local HipH          = 0
+local NoJumpCD      = false
+local CFMoveOn      = false
+local CFSpd         = 24
+local FlyOn         = false
+local FlySpd        = 40
+local TeleportFwdOn = false
+
+local SilentModeOn  = false
+local BallFFOn      = false
+
+local Conns         = {}
+local Unloaded      = false
+local angleConns    = {}
+local anglePrevSpace = false
+local flyBV         = nil
+local _antiBlockTick = 0
+local _tackleReachTick = 0
+
+-- ── HELPERS ────────────────────────────────────────────────────────────────
+local function conn(sig, fn)
+    local c = sig:Connect(fn)
+    table.insert(Conns, c)
+    return c
+end
+
+local function tw(obj, props, t)
+    TS_:Create(obj, TweenInfo.new(t or .14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+
+local function corner(obj, r)
+    Instance.new("UICorner", obj).CornerRadius = r or UDim.new(0, 8)
+end
+
+local function mkStroke(obj, col, th)
+    local s = Instance.new("UIStroke", obj)
+    s.Color = col; s.Thickness = th or 1
+    return s
+end
+
+local function hideBar(sf)
+    sf.ScrollBarImageTransparency = 1
+    sf.ScrollBarThickness = 0
+end
+
+-- ── BALL TRACKING ──────────────────────────────────────────────────────────
+local _ball = nil
+local _ballConns = {}
+
+-- FIX 1: _ballFFParts and both FF functions moved ABOVE watchBall so they exist when called
+local _ballFFParts = {}
+
+local function makeBallFF(ball)
+    if _ballFFParts[ball] then return end
+    local part = Instance.new("Part")
+    part.Shape        = Enum.PartType.Ball
+    part.Size         = Vector3.new(25, 25, 25)
+    part.Color        = T.acc
+    part.Material     = Enum.Material.Neon
+    part.Transparency = 0.82
+    part.CanCollide   = false
+    part.CanQuery     = false
+    part.CastShadow   = false
+    part.Anchored     = true
+    part.Name         = "DuneBallFF"
+    part.CFrame       = CFrame.new(ball.Position)
+    part.Parent       = workspace  -- FIX 5: always parent to workspace, visibility controlled via Transparency
+    _ballFFParts[ball] = part
+    -- If FF is off right now, hide it immediately
+    if not BallFFOn then
+        part.Transparency = 1
+    end
+end
+
+local function destroyBallFF(ball)
+    local part = _ballFFParts[ball]
+    if part then
+        pcall(function() part:Destroy() end)
+        _ballFFParts[ball] = nil
+    end
+end
+
+local function resetCatchParts()
+    local char = LP.Character; if not char then return end
+    for _, n in ipairs({"CatchLeft", "CatchRight"}) do
+        local pt = char:FindFirstChild(n)
+        if pt then
+            pcall(function()
+                pt.Size = Vector3.new(1,1,1)
+                pt.Transparency = 0
+                pt.CanCollide = true
+                pt.CanQuery = true
+            end)
+        end
+    end
+    _ball = nil
+end
+
+local function watchBall(ball)
+    if _ballConns[ball] then return end
+    -- Now safe: makeBallFF and destroyBallFF are defined above
+    if BallFFOn then makeBallFF(ball) end
+    _ballConns[ball] = ball.Destroying:Connect(function()
+        if _ball == ball then _ball = nil end
+        resetCatchParts()
+        destroyBallFF(ball)
+        _ballConns[ball] = nil
+    end)
+end
+
+-- FIX 2: Optimized getBall — no descendant scan while cached ball is valid
+local function getBall()
+    if _ball and _ball.Parent then return _ball end
+    _ball = nil
+    for _, v in ipairs(workspace:GetChildren()) do
+        if v.Name == "Football" and v:IsA("BasePart") then
+            _ball = v; watchBall(v); return v
+        end
+        if v:IsA("Model") then
+            local fb = v:FindFirstChild("Football")
+            if fb and fb:IsA("BasePart") then
+                _ball = fb; watchBall(fb); return fb
+            end
+        end
+    end
+    return nil
+end
+
+-- FIX 2: ChildAdded only (removed DescendantAdded — it fired on every GUI/part change in the entire game causing massive lag)
+conn(workspace.ChildAdded, function(child)
+    if child.Name == "Football" and child:IsA("BasePart") then
+        _ball = child
+        watchBall(child)
+    end
+    if child:IsA("Model") then
+        local fb = child:FindFirstChild("Football")
+        if fb and fb:IsA("BasePart") then
+            _ball = fb; watchBall(fb)
+        end
+        child.ChildAdded:Connect(function(v)
+            if v.Name == "Football" and v:IsA("BasePart") and not _ballConns[v] then
+                _ball = v; watchBall(v)
+            end
+        end)
+    end
+end)
+
+local function getBallCarrier()
+    local ball = getBall()
+    if not ball then return nil end
+    for _, p in ipairs(Players:GetPlayers()) do
+        local char = p.Character
+        if not char then continue end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp and (ball.Position - hrp.Position).Magnitude < 6 then
+            return p
+        end
+    end
+    return nil
+end
+
+-- FIX: getPower keys cached as upvalue — was rebuilding and re-sorting every frame
+local _PT = {[10]=55,[20]=60,[30]=65,[35]=70,[40]=75,[50]=80,[60]=85,[70]=90,[80]=95,[100]=98,[120]=100}
+local _PTKeys = (function()
+    local keys = {}
+    for k in pairs(_PT) do table.insert(keys, k) end
+    table.sort(keys)
+    return keys
+end)()
+
+local function getPower(dist)
+    for i = 1, #_PTKeys - 1 do
+        if dist >= _PTKeys[i] and dist <= _PTKeys[i+1] then
+            local t2 = (dist - _PTKeys[i]) / (_PTKeys[i+1] - _PTKeys[i])
+            return math.floor(_PT[_PTKeys[i]] + (_PT[_PTKeys[i+1]] - _PT[_PTKeys[i]]) * t2 + 0.5)
+        end
+    end
+    return dist < _PTKeys[1] and _PT[_PTKeys[1]] or _PT[_PTKeys[#_PTKeys]]
+end
+
+-- ── SCREEN GUI ─────────────────────────────────────────────────────────────
+local SG = Instance.new("ScreenGui")
+SG.Name = "Dune_V2_UFB"
+SG.IgnoreGuiInset = true
+SG.ResetOnSpawn = false
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() SG.Parent = LP:WaitForChild("PlayerGui", 3) end)
+if not SG.Parent then
+    pcall(function() SG.Parent = game:GetService("CoreGui") end)
+end
+
+-- ── NOTIFICATIONS ──────────────────────────────────────────────────────────
+local NC = Instance.new("Frame", SG)
+NC.Size = UDim2.fromOffset(274, 420)
+NC.Position = UDim2.new(1, -284, 1, -20)
+NC.AnchorPoint = Vector2.new(0, 1)
+NC.BackgroundTransparency = 1
+NC.BorderSizePixel = 0
+local NLL = Instance.new("UIListLayout", NC)
+NLL.Padding = UDim.new(0, 6)
+NLL.VerticalAlignment = Enum.VerticalAlignment.Bottom
+NLL.SortOrder = Enum.SortOrder.LayoutOrder
+local nCnt = 0
+
+local function Notify(title, msg, dur)
+    dur = dur or 3; nCnt += 1
+    local c = Instance.new("Frame", NC)
+    c.LayoutOrder = nCnt; c.Size = UDim2.fromOffset(274, 58)
+    c.BackgroundColor3 = T.card; c.BorderSizePixel = 0; c.BackgroundTransparency = 1
+    corner(c, UDim.new(0, 10))
+    local sk = mkStroke(c, T.bdr); sk.Transparency = 1
+    local bar = Instance.new("Frame", c)
+    bar.Size = UDim2.new(0, 3, 1, -16); bar.Position = UDim2.fromOffset(7, 8)
+    bar.BackgroundColor3 = T.acc; bar.BorderSizePixel = 0; bar.BackgroundTransparency = 1
+    corner(bar, UDim.new(1, 0))
+    local tl = Instance.new("TextLabel", c)
+    tl.Size = UDim2.new(1, -24, 0, 18); tl.Position = UDim2.fromOffset(18, 8)
+    tl.BackgroundTransparency = 1; tl.Font = Enum.Font.GothamBold; tl.TextSize = 12
+    tl.TextColor3 = T.acc; tl.TextXAlignment = Enum.TextXAlignment.Left
+    tl.Text = title; tl.TextTransparency = 1
+    local ml = Instance.new("TextLabel", c)
+    ml.Size = UDim2.new(1, -24, 0, 14); ml.Position = UDim2.fromOffset(18, 28)
+    ml.BackgroundTransparency = 1; ml.Font = Enum.Font.Gotham; ml.TextSize = 11
+    ml.TextColor3 = T.TSub; ml.TextXAlignment = Enum.TextXAlignment.Left
+    ml.Text = msg; ml.TextTransparency = 1
+    local pt = Instance.new("Frame", c)
+    pt.Size = UDim2.new(1, -14, 0, 2); pt.Position = UDim2.new(0, 7, 1, -5)
+    pt.BackgroundColor3 = T.bdr; pt.BorderSizePixel = 0; pt.BackgroundTransparency = 1
+    corner(pt, UDim.new(1, 0))
+    local pf = Instance.new("Frame", pt)
+    pf.Size = UDim2.new(1, 0, 1, 0); pf.BackgroundColor3 = T.acc; pf.BorderSizePixel = 0
+    corner(pf, UDim.new(1, 0))
+    tw(c, {BackgroundTransparency=0}, .18); tw(sk, {Transparency=.5}, .18)
+    tw(bar, {BackgroundTransparency=0}, .18); tw(tl, {TextTransparency=0}, .18)
+    tw(ml, {TextTransparency=0}, .18); tw(pt, {BackgroundTransparency=0}, .18)
+    task.delay(.18, function()
+        TS_:Create(pf, TweenInfo.new(dur-.18, Enum.EasingStyle.Linear), {Size=UDim2.new(0,0,1,0)}):Play()
+    end)
+    task.delay(dur, function()
+        if not c.Parent then return end
+        tw(c,{BackgroundTransparency=1},.22); tw(sk,{Transparency=1},.22)
+        tw(bar,{BackgroundTransparency=1},.22); tw(tl,{TextTransparency=1},.22)
+        tw(ml,{TextTransparency=1},.22); tw(pt,{BackgroundTransparency=1},.22)
+        task.delay(.25, function() if c and c.Parent then c:Destroy() end end)
+    end)
+end
+
+-- ── MAIN WINDOW ────────────────────────────────────────────────────────────
+local WW, WH = 430, 430
+local IH, TH = 40, 32
+local HH = IH + TH
+
+local Main = Instance.new("Frame", SG)
+Main.Size = UDim2.fromOffset(WW, WH)
+Main.Position = UDim2.new(.5, -WW/2, .5, -WH/2)
+Main.BackgroundColor3 = T.bg; Main.BorderSizePixel = 0; Main.ClipsDescendants = false
+corner(Main, UDim.new(0, 14)); mkStroke(Main, T.bdr)
+
+local Hdr = Instance.new("Frame", Main)
+Hdr.Size = UDim2.new(1, 0, 0, HH); Hdr.BackgroundColor3 = T.bgS
+Hdr.BorderSizePixel = 0; corner(Hdr, UDim.new(0, 14))
+local HdrFill = Instance.new("Frame", Hdr)
+HdrFill.Size = UDim2.new(1, 0, 0, 14); HdrFill.Position = UDim2.new(0, 0, 1, -14)
+HdrFill.BackgroundColor3 = T.bgS; HdrFill.BorderSizePixel = 0
+
+local HSep = Instance.new("Frame", Main)
+HSep.Size = UDim2.new(1, 0, 0, 1); HSep.Position = UDim2.fromOffset(0, HH)
+HSep.BackgroundColor3 = T.sep; HSep.BorderSizePixel = 0
+
+local IR = Instance.new("Frame", Hdr)
+IR.Size = UDim2.new(1, 0, 0, IH); IR.BackgroundTransparency = 1; IR.BorderSizePixel = 0
+
+local nameL = Instance.new("TextLabel", IR)
+nameL.Size = UDim2.new(0, 58, 1, 0); nameL.Position = UDim2.fromOffset(14, 0)
+nameL.BackgroundTransparency = 1; nameL.Font = Enum.Font.GothamBold; nameL.TextSize = 16
+nameL.TextColor3 = T.cream; nameL.TextXAlignment = Enum.TextXAlignment.Left; nameL.Text = "DUNE"
+
+local v2L = Instance.new("TextLabel", IR)
+v2L.Size = UDim2.new(0, 22, 1, 0); v2L.Position = UDim2.fromOffset(64, 0)
+v2L.BackgroundTransparency = 1; v2L.Font = Enum.Font.GothamBold; v2L.TextSize = 12
+v2L.TextColor3 = T.acc; v2L.TextXAlignment = Enum.TextXAlignment.Left; v2L.Text = "V2"
+
+local gameTag = Instance.new("TextLabel", IR)
+gameTag.Size = UDim2.new(0, 160, 1, 0); gameTag.Position = UDim2.fromOffset(84, 0)
+gameTag.BackgroundTransparency = 1; gameTag.Font = Enum.Font.Gotham; gameTag.TextSize = 9
+gameTag.TextColor3 = T.TD; gameTag.TextXAlignment = Enum.TextXAlignment.Left
+gameTag.Text = "NFL Universe Football"
+
+local stPill = Instance.new("Frame", IR)
+stPill.Size = UDim2.fromOffset(52, 17); stPill.AnchorPoint = Vector2.new(0, .5)
+stPill.Position = UDim2.new(0, 240, .5, 0); stPill.BackgroundColor3 = Color3.fromRGB(10, 28, 14)
+stPill.BorderSizePixel = 0; corner(stPill, UDim.new(1, 0))
+mkStroke(stPill, Color3.fromRGB(30, 100, 45)).Transparency = .4
+local stDot = Instance.new("Frame", stPill)
+stDot.Size = UDim2.fromOffset(5, 5); stDot.Position = UDim2.new(0, 5, .5, 0)
+stDot.AnchorPoint = Vector2.new(0, .5); stDot.BackgroundColor3 = T.online
+stDot.BorderSizePixel = 0; corner(stDot, UDim.new(1, 0))
+local stLbl = Instance.new("TextLabel", stPill)
+stLbl.Size = UDim2.new(1, -13, 1, 0); stLbl.Position = UDim2.fromOffset(13, 0)
+stLbl.BackgroundTransparency = 1; stLbl.Font = Enum.Font.GothamBold; stLbl.TextSize = 9
+stLbl.TextColor3 = T.online; stLbl.Text = "online"
+
+local function WBtn(lbl, ox)
+    local b = Instance.new("TextButton", IR)
+    b.Size = UDim2.fromOffset(20, 20); b.Position = UDim2.new(1, ox, .5, 0)
+    b.AnchorPoint = Vector2.new(1, .5); b.BackgroundColor3 = T.btn; b.Text = lbl
+    b.Font = Enum.Font.GothamBold; b.TextSize = 11; b.TextColor3 = T.TD
+    b.BorderSizePixel = 0; corner(b, UDim.new(1, 0))
+    conn(b.MouseEnter, function() tw(b, {BackgroundColor3=T.btnH, TextColor3=T.TP}, .1) end)
+    conn(b.MouseLeave, function() tw(b, {BackgroundColor3=T.btn, TextColor3=T.TD}, .1) end)
+    return b
+end
+local BMin = WBtn("–", -28)
+local BClose = WBtn("×", -6)
+
+do
+    local drag, ds, dp = false, nil, nil
+    conn(IR.InputBegan, function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true; ds = i.Position; dp = Main.Position
+        end
+    end)
+    conn(UIS.InputEnded, function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end
+    end)
+    conn(UIS.InputChanged, function(i)
+        if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local d = i.Position - ds
+            Main.Position = UDim2.new(dp.X.Scale, dp.X.Offset+d.X, dp.Y.Scale, dp.Y.Offset+d.Y)
+        end
+    end)
+end
+
+local TBR = Instance.new("Frame", Hdr)
+TBR.Size = UDim2.new(1, 0, 0, TH); TBR.Position = UDim2.fromOffset(0, IH)
+TBR.BackgroundTransparency = 1; TBR.BorderSizePixel = 0
+
+local TBH = Instance.new("Frame", TBR)
+TBH.BackgroundTransparency = 1; TBH.Size = UDim2.new(1, -12, 1, 0)
+TBH.Position = UDim2.new(0, 6, 0, 0)
+local TBLayout = Instance.new("UIListLayout", TBH)
+TBLayout.FillDirection = Enum.FillDirection.Horizontal
+TBLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TBLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+TBLayout.Padding = UDim.new(0, 0); TBLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local TUL = Instance.new("Frame", TBR)
+TUL.Size = UDim2.fromOffset(0, 2); TUL.Position = UDim2.new(0, 0, 1, -2)
+TUL.BackgroundColor3 = T.acc; TUL.BorderSizePixel = 0; TUL.ZIndex = 3
+corner(TUL, UDim.new(1, 0))
+
+local PC = Instance.new("Frame", Main)
+PC.Size = UDim2.new(1, 0, 1, -(HH+1+24)); PC.Position = UDim2.fromOffset(0, HH+1)
+PC.BackgroundTransparency = 1; PC.ClipsDescendants = true
+
+local Ftr = Instance.new("Frame", Main)
+Ftr.Size = UDim2.new(1, 0, 0, 24); Ftr.Position = UDim2.new(0, 0, 1, -24)
+Ftr.BackgroundColor3 = T.bgS; Ftr.BorderSizePixel = 0; corner(Ftr, UDim.new(0, 14))
+local FtrFill = Instance.new("Frame", Ftr)
+FtrFill.Size = UDim2.new(1, 0, 0, 14); FtrFill.BackgroundColor3 = T.bgS; FtrFill.BorderSizePixel = 0
+local FSep = Instance.new("Frame", Main)
+FSep.Size = UDim2.new(1, 0, 0, 1); FSep.Position = UDim2.new(0, 0, 1, -25)
+FSep.BackgroundColor3 = T.sep; FSep.BorderSizePixel = 0
+local FL = Instance.new("TextLabel", Ftr)
+FL.BackgroundTransparency = 1; FL.Font = Enum.Font.Gotham; FL.TextSize = 9
+FL.TextColor3 = T.online; FL.Text = "● 0 players"; FL.Size = UDim2.new(0, 100, 1, 0)
+FL.Position = UDim2.fromOffset(10, 0); FL.TextXAlignment = Enum.TextXAlignment.Left
+local FC = Instance.new("TextLabel", Ftr)
+FC.BackgroundTransparency = 1; FC.Font = Enum.Font.Gotham; FC.TextSize = 9
+FC.TextColor3 = T.TD; FC.Text = "dune / nfl"; FC.Size = UDim2.new(0, 120, 1, 0)
+FC.AnchorPoint = Vector2.new(.5, 0); FC.Position = UDim2.new(.5, 0, 0, 0)
+FC.TextXAlignment = Enum.TextXAlignment.Center
+local FR = Instance.new("TextLabel", Ftr)
+FR.BackgroundTransparency = 1; FR.Font = Enum.Font.Gotham; FR.TextSize = 9
+FR.TextColor3 = T.TD; FR.Text = "UFB  V2"; FR.Size = UDim2.new(0, 80, 1, 0)
+FR.Position = UDim2.new(1, -90, 0, 0); FR.TextXAlignment = Enum.TextXAlignment.Right
+
+-- ── TABS / PAGES ───────────────────────────────────────────────────────────
+local Tabs, Pages = {}, {}
+local function mkPage(n)
+    local p = Instance.new("Frame", PC)
+    p.Size = UDim2.new(1, 0, 1, 0); p.BackgroundTransparency = 1; p.Visible = false
+    Pages[n] = p; return p
+end
+local tabNames = {"Catching", "Defense", "Auto", "Movement", "Config"}
+local function mkTab(n, o)
+    local b = Instance.new("TextButton", TBH)
+    b.LayoutOrder = o; b.Size = UDim2.new(0, 62, 1, -4); b.BackgroundTransparency = 1
+    b.Text = n; b.Font = Enum.Font.GothamMedium; b.TextSize = 10; b.TextColor3 = T.TD
+    b.BorderSizePixel = 0; Tabs[n] = b; mkPage(n)
+    conn(b.MouseButton1Click, function()
+        tw(TUL, {Position=UDim2.new(0, b.AbsolutePosition.X-TBR.AbsolutePosition.X, 1, -2), Size=UDim2.fromOffset(b.AbsoluteSize.X, 2)}, .16)
+        for k, v in pairs(Tabs) do tw(v, {TextColor3=k==n and T.acc or T.TD}, .16) end
+        for k, v in pairs(Pages) do
+            v.Visible = k == n
+            if k == n then
+                local sf = v:FindFirstChildOfClass("ScrollingFrame")
+                if sf then
+                    local ll = sf:FindFirstChildOfClass("UIListLayout")
+                    if ll then sf.CanvasSize = UDim2.new(0, 0, 0, ll.AbsoluteContentSize.Y + 12) end
+                end
+            end
+        end
+    end)
+end
+for i, n in ipairs(tabNames) do mkTab(n, i) end
+
+-- ── WIDGET HELPERS ─────────────────────────────────────────────────────────
+local function mkScroll(page)
+    local s = Instance.new("ScrollingFrame", page)
+    s.Size = UDim2.new(1, 0, 1, 0); s.BackgroundTransparency = 1
+    hideBar(s); s.BorderSizePixel = 0; s.CanvasSize = UDim2.new(0, 0, 0, 0)
+    s.ScrollingDirection = Enum.ScrollingDirection.Y
+    local l = Instance.new("UIListLayout", s)
+    l.Padding = UDim.new(0, 6); l.SortOrder = Enum.SortOrder.LayoutOrder
+    local p = Instance.new("UIPadding", s)
+    p.PaddingLeft = UDim.new(0, 12); p.PaddingRight = UDim.new(0, 12)
+    p.PaddingTop = UDim.new(0, 8); p.PaddingBottom = UDim.new(0, 8)
+    conn(l:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        s.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y + 12)
+    end)
+    task.defer(function()
+        s.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y + 12)
+    end)
+    return s
+end
+
+local TipFrame = Instance.new("Frame", SG)
+TipFrame.Size = UDim2.fromOffset(192, 0); TipFrame.AutomaticSize = Enum.AutomaticSize.Y
+TipFrame.BackgroundColor3 = T.panel; TipFrame.BorderSizePixel = 0
+TipFrame.Visible = false; TipFrame.ZIndex = 100
+corner(TipFrame, UDim.new(0, 7)); mkStroke(TipFrame, T.bdr)
+local TipLbl = Instance.new("TextLabel", TipFrame)
+TipLbl.Size = UDim2.new(1, -12, 0, 0); TipLbl.Position = UDim2.fromOffset(6, 5)
+TipLbl.AutomaticSize = Enum.AutomaticSize.Y; TipLbl.BackgroundTransparency = 1
+TipLbl.Font = Enum.Font.Gotham; TipLbl.TextSize = 10; TipLbl.TextColor3 = T.TSub
+TipLbl.TextWrapped = true; TipLbl.TextXAlignment = Enum.TextXAlignment.Left; TipLbl.ZIndex = 101
+Instance.new("UIPadding", TipFrame).PaddingBottom = UDim.new(0, 5)
+
+local function showTip(txt, src)
+    TipLbl.Text = txt; TipFrame.Visible = true
+    local ap = src.AbsolutePosition; local as = src.AbsoluteSize
+    TipFrame.Position = UDim2.fromOffset(
+        math.clamp(ap.X, 4, Cam.ViewportSize.X - 198),
+        math.min(ap.Y + as.Y + 4, Cam.ViewportSize.Y - 72)
+    )
+end
+local function hideTip() TipFrame.Visible = false end
+
+local function mkTip(parent, txt)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.fromOffset(14, 14); b.BackgroundColor3 = T.accDim; b.Text = "?"
+    b.Font = Enum.Font.GothamBold; b.TextSize = 8; b.TextColor3 = T.cream
+    b.BorderSizePixel = 0; corner(b, UDim.new(1, 0))
+    conn(b.MouseEnter, function() showTip(txt, b) end)
+    conn(b.MouseLeave, hideTip)
+    return b
+end
+
+local function Sec(p, txt, ord)
+    local f = Instance.new("Frame", p)
+    f.Size = UDim2.new(1, 0, 0, 20); f.BackgroundTransparency = 1
+    if ord then f.LayoutOrder = ord end
+    local l = Instance.new("TextLabel", f)
+    l.BackgroundTransparency = 1; l.Font = Enum.Font.GothamBold; l.TextSize = 9
+    l.TextColor3 = T.acc; l.Text = txt:upper(); l.AutomaticSize = Enum.AutomaticSize.X
+    l.Size = UDim2.new(0, 0, 1, 0); l.TextXAlignment = Enum.TextXAlignment.Left; l.ZIndex = 3
+    local ln = Instance.new("Frame", f)
+    ln.Size = UDim2.new(1, -4, 0, 1); ln.Position = UDim2.new(0, 2, .5, 0)
+    ln.AnchorPoint = Vector2.new(0, .5); ln.BackgroundColor3 = T.sep; ln.BorderSizePixel = 0; ln.ZIndex = 2
+end
+
+local function Tog(p, txt, def, cb, ord, tip)
+    local row = Instance.new("Frame", p)
+    row.Size = UDim2.new(1, 0, 0, 28); row.BackgroundTransparency = 1
+    if ord then row.LayoutOrder = ord end
+    local box = Instance.new("Frame", row)
+    box.Size = UDim2.fromOffset(28, 16); box.Position = UDim2.new(1, -28, .5, 0)
+    box.AnchorPoint = Vector2.new(0, .5); box.BackgroundColor3 = def and T.acc or T.btn
+    box.BorderSizePixel = 0; corner(box, UDim.new(1, 0))
+    local sk = mkStroke(box, def and T.acc or T.bdr)
+    local knob = Instance.new("Frame", box)
+    knob.Size = UDim2.fromOffset(10, 10); knob.AnchorPoint = Vector2.new(.5, .5)
+    knob.Position = UDim2.new(def and .75 or .25, 0, .5, 0)
+    knob.BackgroundColor3 = def and T.bg or T.TD; knob.BorderSizePixel = 0
+    corner(knob, UDim.new(1, 0))
+    local lblW = tip and UDim2.new(1, -72, 1, 0) or UDim2.new(1, -36, 1, 0)
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = lblW; lbl.Position = UDim2.fromOffset(0, 0); lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.Gotham; lbl.TextSize = 11; lbl.TextColor3 = def and T.TP or T.TSub
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Text = txt
+    if tip then
+        local tb = mkTip(row, tip); tb.AnchorPoint = Vector2.new(0, .5)
+        tb.Position = UDim2.new(1, -58, .5, 0)
+    end
+    local state = def
+    local function setV(v)
+        state = v
+        tw(box, {BackgroundColor3=v and T.acc or T.btn}, .12)
+        tw(sk, {Color=v and T.acc or T.bdr}, .12)
+        tw(knob, {Position=UDim2.new(v and .75 or .25, 0, .5, 0), BackgroundColor3=v and T.bg or T.TD}, .12)
+        tw(lbl, {TextColor3=v and T.TP or T.TSub}, .12)
+    end
+    local cl = Instance.new("TextButton", row)
+    cl.Size = UDim2.new(1, 0, 1, 0); cl.BackgroundTransparency = 1; cl.Text = ""
+    conn(cl.MouseButton1Click, function() state = not state; setV(state); cb(state) end)
+    return setV
+end
+
+local function Sld(p, txt, mn, mx, def, step, cb, ord, tip)
+    step = step or 1
+    local h = Instance.new("Frame", p)
+    h.Size = UDim2.new(1, 0, 0, 44); h.BackgroundTransparency = 1
+    if ord then h.LayoutOrder = ord end
+    local tr = Instance.new("Frame", h); tr.Size = UDim2.new(1, 0, 0, 16); tr.BackgroundTransparency = 1
+    local lb = Instance.new("TextLabel", tr)
+    lb.Size = UDim2.new(.6, 0, 1, 0); lb.BackgroundTransparency = 1; lb.Font = Enum.Font.Gotham
+    lb.TextSize = 11; lb.TextColor3 = T.TSub; lb.TextXAlignment = Enum.TextXAlignment.Left; lb.Text = txt
+    local vl = Instance.new("TextLabel", tr)
+    vl.Size = UDim2.new(.38, 0, 1, 0); vl.Position = UDim2.new(.62, 0, 0, 0)
+    vl.BackgroundTransparency = 1; vl.Font = Enum.Font.GothamBold; vl.TextSize = 11
+    vl.TextColor3 = T.TP; vl.TextXAlignment = Enum.TextXAlignment.Right; vl.Text = tostring(def)
+    if tip then
+        local tb = mkTip(tr, tip); tb.AnchorPoint = Vector2.new(1, .5)
+        tb.Position = UDim2.new(1, 0, .5, 0)
+    end
+    local tk = Instance.new("Frame", h)
+    tk.Position = UDim2.new(0, 0, 0, 24); tk.Size = UDim2.new(1, 0, 0, 5)
+    tk.BackgroundColor3 = T.btn; tk.BorderSizePixel = 0; corner(tk, UDim.new(1, 0)); mkStroke(tk, T.bdr)
+    local fl = Instance.new("Frame", tk)
+    fl.Size = UDim2.new((def-mn)/(mx-mn), 0, 1, 0); fl.BackgroundColor3 = T.acc
+    fl.BorderSizePixel = 0; corner(fl, UDim.new(1, 0))
+    local th = Instance.new("Frame", tk)
+    th.Size = UDim2.fromOffset(13, 13); th.AnchorPoint = Vector2.new(.5, .5)
+    th.Position = UDim2.new((def-mn)/(mx-mn), 0, .5, 0); th.BackgroundColor3 = T.cream
+    th.BorderSizePixel = 0; corner(th, UDim.new(1, 0)); mkStroke(th, T.acc)
+    cb(def); local drag = false
+    conn(tk.InputBegan, function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = true end end)
+    conn(UIS.InputEnded, function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end end)
+    conn(RS.RenderStepped, function()
+        if Unloaded or not drag then return end
+        local pct = math.clamp((UIS:GetMouseLocation().X - tk.AbsolutePosition.X) / tk.AbsoluteSize.X, 0, 1)
+        local val = math.clamp(math.floor((mn+(mx-mn)*pct)/step+.5)*step, mn, mx)
+        local sp = (val-mn)/(mx-mn)
+        fl.Size = UDim2.new(sp, 0, 1, 0); th.Position = UDim2.new(sp, 0, .5, 0)
+        vl.Text = tostring(val); cb(val)
+    end)
+end
+
+local function Drop(p, txt, opts, di, cb, ord)
+    local con = Instance.new("Frame", p)
+    con.Size = UDim2.new(1, 0, 0, 46); con.BackgroundTransparency = 1
+    con.ClipsDescendants = false
+    if ord then con.LayoutOrder = ord end
+    local lb = Instance.new("TextLabel", con)
+    lb.Size = UDim2.new(1, 0, 0, 16); lb.BackgroundTransparency = 1; lb.Font = Enum.Font.Gotham
+    lb.TextSize = 11; lb.TextColor3 = T.TSub; lb.TextXAlignment = Enum.TextXAlignment.Left; lb.Text = txt
+    local btn = Instance.new("TextButton", con)
+    btn.Size = UDim2.new(1, 0, 0, 26); btn.Position = UDim2.fromOffset(0, 18)
+    btn.BackgroundColor3 = T.btn; btn.BorderSizePixel = 0; btn.Font = Enum.Font.Gotham
+    btn.TextSize = 11; btn.TextColor3 = T.TP; btn.TextXAlignment = Enum.TextXAlignment.Left
+    corner(btn, UDim.new(0, 7)); mkStroke(btn, T.bdr)
+    Instance.new("UIPadding", btn).PaddingLeft = UDim.new(0, 10)
+    local chv = Instance.new("TextLabel", btn)
+    chv.Size = UDim2.fromOffset(20, 26); chv.Position = UDim2.new(1, -24, 0, 0)
+    chv.BackgroundTransparency = 1; chv.Font = Enum.Font.GothamBold; chv.TextSize = 10
+    chv.TextColor3 = T.TD; chv.Text = "▾"
+
+    local curIdx = di
+    btn.Text = opts[curIdx]
+    cb(curIdx)
+
+    -- dl is a child of SG (top-level) so it is NEVER clipped by any scroll frame or page container
+    -- Position uses raw AbsolutePosition so it always opens right below the button
+    local lh = #opts * 28 + 8
+    local dl = Instance.new("Frame", SG)
+    dl.BackgroundColor3 = T.card; dl.BorderSizePixel = 0
+    dl.ZIndex = 200; dl.Visible = false; dl.Size = UDim2.fromOffset(0, 0)
+    corner(dl, UDim.new(0, 7)); mkStroke(dl, T.bdr)
+    local dll = Instance.new("UIListLayout", dl)
+    dll.Padding = UDim.new(0, 2); dll.SortOrder = Enum.SortOrder.LayoutOrder
+    local dlp = Instance.new("UIPadding", dl)
+    dlp.PaddingTop = UDim.new(0, 4); dlp.PaddingBottom = UDim.new(0, 4)
+    dlp.PaddingLeft = UDim.new(0, 4); dlp.PaddingRight = UDim.new(0, 4)
+
+    local open = false
+
+    local function updateColors()
+        for _, ch in ipairs(dl:GetChildren()) do
+            if ch:IsA("TextButton") then
+                ch.TextColor3 = ch.Text == opts[curIdx] and T.acc or T.TSub
+            end
+        end
+    end
+
+    local function close()
+        if not open then return end
+        open = false
+        local w = dl.AbsoluteSize.X
+        tw(dl, {Size = UDim2.fromOffset(w, 0)}, .12)
+        task.delay(.13, function() if not open then dl.Visible = false end end)
+        tw(chv, {Rotation = 0}, .12)
+    end
+
+    for i, opt in ipairs(opts) do
+        local it = Instance.new("TextButton", dl)
+        it.LayoutOrder = i; it.Size = UDim2.new(1, 0, 0, 24); it.BackgroundColor3 = T.btn
+        it.Font = Enum.Font.Gotham; it.TextSize = 11; it.TextColor3 = i==curIdx and T.acc or T.TSub
+        it.TextXAlignment = Enum.TextXAlignment.Left; it.Text = opt; it.BorderSizePixel = 0
+        it.ZIndex = 201; corner(it, UDim.new(0, 5))
+        Instance.new("UIPadding", it).PaddingLeft = UDim.new(0, 8)
+        conn(it.MouseEnter, function() tw(it, {BackgroundColor3=T.btnH}, .1) end)
+        conn(it.MouseLeave, function() tw(it, {BackgroundColor3=T.btn}, .1) end)
+        conn(it.MouseButton1Click, function()
+            curIdx = i
+            btn.Text = opt   -- update the button label immediately
+            cb(i)
+            updateColors()
+            close()
+        end)
+    end
+
+    conn(btn.MouseButton1Click, function()
+        if open then close(); return end
+        open = true
+        local ap = btn.AbsolutePosition
+        local as = btn.AbsoluteSize
+        dl.Size = UDim2.fromOffset(as.X, 0)
+        dl.Position = UDim2.fromOffset(ap.X, ap.Y + as.Y + 2)
+        dl.Visible = true
+        tw(dl, {Size = UDim2.fromOffset(as.X, lh)}, .14)
+        tw(chv, {Rotation = 180}, .14)
+    end)
+
+    conn(UIS.InputBegan, function(i)
+        if not open then return end
+        if i.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        task.defer(function()
+            if not open then return end
+            local mp  = UIS:GetMouseLocation()
+            local dp  = dl.AbsolutePosition;  local ds = dl.AbsoluteSize
+            local bp  = btn.AbsolutePosition; local bs = btn.AbsoluteSize
+            if not (mp.X>=dp.X and mp.X<=dp.X+ds.X and mp.Y>=dp.Y and mp.Y<=dp.Y+ds.Y)
+            and not (mp.X>=bp.X and mp.X<=bp.X+bs.X and mp.Y>=bp.Y and mp.Y<=bp.Y+bs.Y) then
+                close()
+            end
+        end)
+    end)
+end
+
+-- ── ANGLE ENHANCER HOOK ───────────────────────────────────────────────────
+local AngleOn = false; local AngleStr = 6
+local function hookAngle()
+    -- FIX: properly disconnect before clearing, not just table.clear
+    for _, c in ipairs(angleConns) do pcall(function() c:Disconnect() end) end
+    table.clear(angleConns)
+    table.insert(angleConns, UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if not AngleOn then return end
+        if input.KeyCode ~= Enum.KeyCode.Space then return end
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local delay = math.clamp((1 - AngleStr/10)*0.45 + 0.05, 0.05, 0.5)
+        task.delay(delay, function()
+            if Unloaded or not AngleOn then return end
+            local c2 = LP.Character
+            local h2 = c2 and c2:FindFirstChildOfClass("Humanoid")
+            if h2 then h2:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end)
+    end))
+end
+hookAngle()
+
+-- ── LMB / RMB TRACKING ────────────────────────────────────────────────────
+conn(UIS.InputBegan, function(i, gp)
+    if gp then return end
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then lmbHeld = true end
+    if i.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = true end
+end)
+conn(UIS.InputEnded, function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then lmbHeld = false end
+    if i.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = false end
+end)
+
+-- ── MAG LOOP ──────────────────────────────────────────────────────────────
+conn(RS.Stepped, function()
+    if Unloaded then return end
+    local char = LP.Character; if not char then return end
+    local cl = char:FindFirstChild("CatchLeft")
+    local cr = char:FindFirstChild("CatchRight")
+    if not cl or not cr then return end
+
+    local magActive = MagOn and (not MagLMBOnly or lmbHeld)
+    local sz
+
+    if magActive then
+        sz = MagSize
+    elseif ReachOn then
+        sz = ReachSz
+    end
+
+    if sz then
+        local sv = Vector3.new(sz, sz, sz)
+        pcall(function()
+            cl.Size = sv; cr.Size = sv
+            cl.Transparency = 1; cr.Transparency = 1
+            cl.CanCollide = false; cr.CanCollide = false
+            cl.CanQuery = false; cr.CanQuery = false
+            cl.CanTouch = true; cr.CanTouch = true
+            cl.Massless = true; cr.Massless = true
+            cl.Material = Enum.Material.SmoothPlastic
+            cr.Material = Enum.Material.SmoothPlastic
+        end)
+    else
+        pcall(function()
+            if cl.Size.X ~= 1 then cl.Size = Vector3.new(1,1,1) end
+            if cr.Size.X ~= 1 then cr.Size = Vector3.new(1,1,1) end
+            cl.Transparency = 0; cr.Transparency = 0
+            cl.CanCollide = true; cr.CanCollide = true
+            cl.CanTouch = true; cr.CanTouch = true
+        end)
+    end
+
+    -- FIX 3: removed task.wait() — was yielding inside Stepped causing desynced touch events
+    -- Both fire/unfires now happen synchronously in the same frame
+    if magActive and typeof(firetouchinterest) == "function" then
+        -- Use cached _ball directly here — avoid rescanning workspace every frame
+        local ball = (_ball and _ball.Parent) and _ball or nil
+        if not ball then
+            for _, v in ipairs(workspace:GetChildren()) do
+                if v.Name == "Football" and v:IsA("BasePart") then ball = v; _ball = v; break end
+            end
+        end
+        if ball then
+            pcall(function()
+                firetouchinterest(cl, ball, 0)
+                firetouchinterest(cr, ball, 0)
+                firetouchinterest(cl, ball, 1)
+                firetouchinterest(cr, ball, 1)
+            end)
+        end
+    end
+end)
+
+-- ── TAB: CATCHING ──────────────────────────────────────────────────────────
+do
+    local s = mkScroll(Pages["Catching"])
+    Sec(s, "MAGNETS", 1)
+
+    Tog(s, "Magnets", false, function(v)
+        MagOn = v
+        Notify("Magnets", v and ("ON — hitbox " .. MagSize .. " studs") or "OFF")
+    end, 2, "Expands CatchLeft/CatchRight and fires firetouchinterest on Football each frame. Hold LMB to activate (if LMB Only is on).")
+    Sld(s, "Hitbox Size", 1, 120, 25, 1, function(v)
+        MagSize = v
+    end, 3, "Size of CatchLeft/CatchRight parts. ~20 is subtle, ~50 is league, ~120 is blatant.")
+
+    Sec(s, "OPTIONS", 4)
+    Tog(s, "LMB Only", true, function(v) MagLMBOnly=v end, 5, "When ON, mags only fire while holding left click.")
+
+    Sec(s, "PULL VECTOR", 6)
+    Tog(s, "Pull Vector", false, function(v) PullOn=v; Notify("Pull Vector", v and "ON — hold RMB to pull" or "OFF") end, 7, "Hold RMB to lerp your HRP toward the Football. Only activates while right mouse button is held.")
+    Drop(s, "Pull Mode", {"Smooth (lerp)", "Instant (teleport)"}, 1, function(i) PullMode=i end, 8)
+    Sld(s, "Pull Strength", 1, 8, 3, 1, function(v) PullStr=v end, 9, "Alpha per frame. Keep ≤3 for legit feel.")
+
+    Sec(s, "REACH / AUTO CATCH", 10)
+    Tog(s, "Catch Reach",  false, function(v) ReachOn=v; Notify("Reach", v and "ON" or "OFF") end, 11, "Expands CatchLeft/CatchRight hitbox parts. SmoothPlastic — no glow.")
+    Sld(s, "Reach Size", 2, 120, 20, 1, function(v) ReachSz=v end, 12, "Hitbox radius. 20 = subtle, 60+ = obvious.")
+    Tog(s, "Auto Catch", false, function(v) AutoCatchOn=v; Notify("Auto Catch", v and "ON" or "OFF") end, 13, "Fires firetouchinterest on catch parts when Football is in range. Debounced.")
+    Sld(s, "Catch Distance", 5, 80, 30, 1, function(v) CatchDist=v end, 14, "How close the ball must be to trigger. 30 is safe.")
+
+    Sec(s, "ANGLE ENHANCER", 15)
+    Tog(s, "Angle Enhancer", false, function(v) AngleOn=v; hookAngle(); Notify("Angle", v and "ON" or "OFF") end, 16, "Fires one extra jump per Space press to improve catch angle. Edge-triggered.")
+    Sld(s, "Angle Strength", 1, 10, 6, 1, function(v) AngleStr=v end, 17, "Higher = fires sooner after press.")
+
+    Sec(s, "BALL PREDICTION", 18)
+    Tog(s, "Ball Prediction Line", false, function(v)
+        BallPredOn = v
+        if v then
+            if not ballPredLine then
+                pcall(function()
+                    ballPredLine = Drawing.new("Line")
+                    ballPredLine.Thickness  = 2
+                    ballPredLine.Color      = Color3.fromRGB(100, 200, 255)
+                    ballPredLine.Transparency = 0.25
+                    ballPredLine.Visible    = false
+                end)
+            end
+            if not ballPredDot then
+                pcall(function()
+                    ballPredDot = Drawing.new("Circle")
+                    ballPredDot.Thickness   = 2
+                    ballPredDot.Radius      = 6
+                    ballPredDot.Color       = Color3.fromRGB(100, 200, 255)
+                    ballPredDot.Filled      = true
+                    ballPredDot.Transparency = 0.2
+                    ballPredDot.Visible     = false
+                end)
+            end
+        else
+            pcall(function() if ballPredLine  then ballPredLine.Visible  = false end end)
+            pcall(function() if ballPredDot   then ballPredDot.Visible   = false end end)
+        end
+        Notify("Ball Prediction", v and "ON — shows landing point" or "OFF")
+    end, 19, "Simulates ball trajectory using velocity + gravity and draws a line to the predicted landing spot.")
+
+    Sec(s, "BALL FORCEFIELD", 20)
+    Tog(s, "Ball Forcefield", false, function(v)
+        BallFFOn = v
+        if v then
+            for _, child in ipairs(workspace:GetDescendants()) do
+                if child.Name == "Football" and child:IsA("BasePart") then
+                    makeBallFF(child)
+                end
+            end
+            -- Make all existing FF parts visible
+            for _, part in pairs(_ballFFParts) do
+                if part and part.Parent then
+                    pcall(function() part.Transparency = 0.82 end)
+                end
+            end
+        else
+            -- Hide all FF parts but don't destroy — they stay ready for next toggle
+            for _, part in pairs(_ballFFParts) do
+                if part and part.Parent then
+                    pcall(function() part.Transparency = 1 end)
+                end
+            end
+        end
+        Notify("Ball Forcefield", v and "ON — sphere on each ball" or "OFF")
+    end, 21, "Gold neon sphere on every Football, sized to your mag hitbox. Hides itself when the ball is destroyed.")
+end
+
+
+-- ── TAB: DEFENSE ───────────────────────────────────────────────────────────
+do
+    local s = mkScroll(Pages["Defense"])
+    Sec(s, "AUTO FOLLOW", 1)
+    Tog(s, "Auto Follow Carrier", false, function(v) AutoFollowOn=v; Notify("Auto Follow", v and "ON" or "OFF") end, 2, "Smoothly lerps your HRP toward whoever has the Football.")
+    Sld(s, "Follow Range", 5, 60, 20, 1, function(v) FollowRange=v end, 3, "Max distance to start following ball carrier.")
+
+    Sec(s, "TACKLE", 4)
+    Tog(s, "Tackle Reach", false, function(v) TackleReachOn=v; Notify("Tackle Reach", v and "ON" or "OFF") end, 5, "Expands any tackle/hitbox parts in your character.")
+    Sld(s, "Tackle Hitbox Size", 4, 50, 12, 1, function(v) TackleReachSz=v end, 6, "Tackle part size. 12 = subtle.")
+    Tog(s, "TP Tackle", false, function(v) TPTackleOn=v end, 7, "Teleports directly to the ball carrier when in range.")
+
+    Sec(s, "ANTI BLOCK", 8)
+    Tog(s, "Anti Block 1", false, function(v) AntiBlock1On=v; Notify("Anti Block 1", v and "ON" or "OFF") end, 9, "Zeros out opponent block parts each frame.")
+    Tog(s, "Anti Block 2", false, function(v) AntiBlock2On=v; Notify("Anti Block 2", v and "ON" or "OFF") end, 10, "Removes parts named 'Shield' or 'Blocker' from opponents.")
+
+    Sec(s, "AUTO SACK", 11)
+    Tog(s, "Auto Sack", false, function(v) AutoSackOn=v; Notify("Auto Sack", v and "ON — enemies only" or "OFF") end, 12, "Teleports to the enemy QB when they have the Football. Team-checked.")
+end
+
+-- ── TAB: AUTO ──────────────────────────────────────────────────────────────
+do
+    local s = mkScroll(Pages["Auto"])
+    Sec(s, "RECOVERY", 1)
+    Tog(s, "Auto Get Up", false, function(v) AutoGetUpOn=v end, 2, "Instantly cancels ragdoll/falling-down/getting-up states.")
+
+    Sec(s, "STAMINA", 3)
+
+    local hiSV, loSV
+    hiSV = Tog(s, "Infinite Stamina (High Unc)", false, function(v)
+        InfStamHighOn = v
+        -- FIX: force InfStamLowOn off at data level too, not just UI
+        if v and InfStamLowOn then
+            InfStamLowOn = false
+            if loSV then loSV(false) end
+        end
+        Notify("Inf Stamina", v and "High Unc ON" or "OFF")
+    end, 4, "Sets WalkSpeed/JumpPower every frame above server threshold — more effective, slightly more obvious.")
+    loSV = Tog(s, "Infinite Stamina (Low Unc)",  false, function(v)
+        InfStamLowOn = v
+        -- FIX: force InfStamHighOn off at data level too
+        if v and InfStamHighOn then
+            InfStamHighOn = false
+            if hiSV then hiSV(false) end
+        end
+        Notify("Inf Stamina", v and "Low Unc ON" or "OFF")
+    end, 5, "Keeps stamina-linked speed at a natural range — less detectable.")
+
+    Sec(s, "MISC", 6)
+    Tog(s, "Perfect Jump Timing", false, function(v) PerfJumpOn=v end, 7, "Auto-times jump for best catch angle when Football is airborne.")
+    Tog(s, "Auto Captain",        false, function(v) AutoCaptainOn=v end, 8, "Attempts to vote for self as captain each round.")
+    -- FIX: Remove Ball Trail now persists across ball respawns via watchBall
+    local trailOn = false
+    Tog(s, "Remove Ball Trail",   false, function(v)
+        trailOn = v
+        local ball = getBall()
+        if ball then
+            local t = ball:FindFirstChildOfClass("Trail")
+            if t then t.Enabled = not v end
+        end
+        Notify("Ball Trail", v and "Removed" or "Restored")
+    end, 9, "Hides the Football's motion trail. Re-applies when ball respawns.")
+
+    -- Re-apply trail removal when a new ball spawns
+    conn(workspace.ChildAdded, function(child)
+        if child.Name == "Football" and child:IsA("BasePart") and trailOn then
+            task.defer(function()
+                local t = child:FindFirstChildOfClass("Trail")
+                if t then t.Enabled = false end
+            end)
+        end
+    end)
+end
+
+-- ── TAB: MOVEMENT ──────────────────────────────────────────────────────────
+do
+    local s = mkScroll(Pages["Movement"])
+    Sec(s, "CHARACTER", 1)
+    Sld(s, "Walk Speed",  16, 200, 16,  1,  function(v) WS=v end,   2, "Default 16. Anti-speed hack is bypassed on load.")
+    Sld(s, "Jump Power",  25, 300, 50,  1,  function(v) JP=v end,   3, "Default 50.")
+    Sld(s, "Hip Height",  0,  10,  0,   .1, function(v) HipH=v end, 4, "0 = grounded. Raise only if needed.")
+    Tog(s, "No Jump Cooldown", false, function(v) NoJumpCD=v end, 5, "Removes delay between consecutive jumps.")
+
+    Sec(s, "CFRAME MOVE", 6)
+    Tog(s, "CFrame Move", false, function(v) CFMoveOn=v; Notify("CFrame Move", v and "ON" or "OFF") end, 7, "WASD + Space/Shift move via raw CFrame. No animation — faster than normal run.")
+    Sld(s, "CF Speed", 8, 120, 24, 1, function(v) CFSpd=v end, 8, "Speed while CFrame Move is active.")
+
+    Sec(s, "FLY", 9)
+    Tog(s, "Fly", false, function(v)
+        FlyOn = v
+        if not v and flyBV then
+            pcall(function() flyBV:Destroy() end); flyBV = nil
+        end
+        Notify("Fly", v and "ON — use WASD+Space/Shift" or "OFF")
+    end, 10, "Fly using camera direction. WASD to move, Space up, Shift down.")
+    Sld(s, "Fly Speed", 10, 200, 40, 1, function(v) FlySpd=v end, 11)
+
+    Sec(s, "TELEPORTS", 12)
+    Tog(s, "Teleport Forward (F)", false, function(v) TeleportFwdOn=v end, 13, "Press F to teleport 15 studs in the direction you're facing.")
+end
+
+-- ── TAB: CONFIG ────────────────────────────────────────────────────────────
+do
+    local s = mkScroll(Pages["Config"])
+    local presets = {
+        {
+            name="Legit", desc="Safe — league-friendly mags + angle",
+            col=T.legit,
+            st={MagOn=true,  MagSize=20, ReachOn=false, AngleOn=true, AngleStr=6, AutoGetUpOn=true, WS=16, JP=50}
+        },
+        {
+            name="League", desc="Balanced — mags + aimbot + reach + ESP",
+            col=T.league,
+            st={MagOn=true, MagSize=50, ReachOn=true, ReachSz=22, AngleOn=true, AngleStr=8, AutoGetUpOn=true, AutoFollowOn=true, InfStamLowOn=true, WS=16, JP=50}
+        },
+        {
+            name="Blatant", desc="Everything on",
+            col=T.blatant,
+            st={MagOn=true, MagSize=120, ReachOn=true, ReachSz=55, AutoCatchOn=true, CatchDist=40, AutoGetUpOn=true, AutoFollowOn=true, TackleReachOn=true, TackleReachSz=30, AntiBlock1On=true, InfStamHighOn=true, WS=22, JP=80}
+        },
+    }
+    Sec(s, "PRESETS", 1)
+    for i, pr in ipairs(presets) do
+        local card = Instance.new("Frame", s)
+        card.LayoutOrder = i+1; card.Size = UDim2.new(1, 0, 0, 66)
+        card.BackgroundColor3 = T.card; card.BorderSizePixel = 0; corner(card, UDim.new(0, 10))
+        local cs = mkStroke(card, T.bdr)
+        local acBar = Instance.new("Frame", card)
+        acBar.Size = UDim2.new(0, 3, 1, -16); acBar.Position = UDim2.fromOffset(10, 8)
+        acBar.BackgroundColor3 = pr.col; acBar.BorderSizePixel = 0; corner(acBar, UDim.new(1, 0))
+        local nl = Instance.new("TextLabel", card)
+        nl.Size = UDim2.new(1, -110, 0, 22); nl.Position = UDim2.fromOffset(22, 10)
+        nl.BackgroundTransparency = 1; nl.Font = Enum.Font.GothamBold; nl.TextSize = 14
+        nl.TextColor3 = pr.col; nl.TextXAlignment = Enum.TextXAlignment.Left; nl.Text = pr.name
+        local dl = Instance.new("TextLabel", card)
+        dl.Size = UDim2.new(1, -110, 0, 14); dl.Position = UDim2.fromOffset(22, 34)
+        dl.BackgroundTransparency = 1; dl.Font = Enum.Font.Gotham; dl.TextSize = 10
+        dl.TextColor3 = T.TD; dl.TextXAlignment = Enum.TextXAlignment.Left; dl.Text = pr.desc
+        local ab = Instance.new("TextButton", card)
+        ab.Size = UDim2.fromOffset(72, 28); ab.Position = UDim2.new(1, -82, .5, 0)
+        ab.AnchorPoint = Vector2.new(0, .5); ab.Font = Enum.Font.GothamBold; ab.TextSize = 11
+        ab.TextColor3 = pr.col; ab.Text = "Apply"; ab.BorderSizePixel = 0; corner(ab, UDim.new(0, 8))
+        ab.BackgroundColor3 = Color3.fromRGB(math.floor(pr.col.R*255*0.13),math.floor(pr.col.G*255*0.13),math.floor(pr.col.B*255*0.13))
+        mkStroke(ab, pr.col).Transparency = .5
+        conn(ab.MouseEnter, function() tw(ab,{BackgroundColor3=Color3.fromRGB(math.floor(pr.col.R*255*0.22),math.floor(pr.col.G*255*0.22),math.floor(pr.col.B*255*0.22))},.1) end)
+        conn(ab.MouseLeave, function() tw(ab,{BackgroundColor3=Color3.fromRGB(math.floor(pr.col.R*255*0.13),math.floor(pr.col.G*255*0.13),math.floor(pr.col.B*255*0.13))},.1) end)
+        conn(ab.MouseButton1Click, function()
+            local st = pr.st
+            if st.MagOn          ~= nil then MagOn=st.MagOn end
+            -- FIX: use ~= nil check for numbers so 0 values aren't skipped
+            if st.MagSize        ~= nil then MagSize=st.MagSize end
+            if st.ReachOn        ~= nil then ReachOn=st.ReachOn end
+            if st.ReachSz        ~= nil then ReachSz=st.ReachSz end
+            if st.AutoCatchOn    ~= nil then AutoCatchOn=st.AutoCatchOn end
+            if st.CatchDist      ~= nil then CatchDist=st.CatchDist end
+            if st.AngleOn        ~= nil then AngleOn=st.AngleOn; hookAngle() end
+            if st.AngleStr       ~= nil then AngleStr=st.AngleStr end
+            if st.AutoGetUpOn    ~= nil then AutoGetUpOn=st.AutoGetUpOn end
+            if st.AutoFollowOn   ~= nil then AutoFollowOn=st.AutoFollowOn end
+            if st.TackleReachOn  ~= nil then TackleReachOn=st.TackleReachOn end
+            if st.TackleReachSz  ~= nil then TackleReachSz=st.TackleReachSz end
+            if st.AntiBlock1On   ~= nil then AntiBlock1On=st.AntiBlock1On end
+            if st.InfStamHighOn  ~= nil then InfStamHighOn=st.InfStamHighOn end
+            if st.InfStamLowOn   ~= nil then InfStamLowOn=st.InfStamLowOn end
+            if st.WS             ~= nil then WS=st.WS end
+            if st.JP             ~= nil then JP=st.JP end
+            Notify("Config", pr.name .. " preset applied")
+            tw(cs,{Color=pr.col,Thickness=1.5},.1)
+            task.delay(.6, function() tw(cs,{Color=T.bdr,Thickness=1},.3) end)
+        end)
+    end
+
+    Sec(s, "SAVE & LOAD", 5)
+    local br = Instance.new("Frame", s); br.LayoutOrder=6; br.Size=UDim2.new(1,0,0,34); br.BackgroundTransparency=1
+    local brl = Instance.new("UIListLayout", br); brl.FillDirection=Enum.FillDirection.Horizontal; brl.Padding=UDim.new(0,8); brl.SortOrder=Enum.SortOrder.LayoutOrder
+    local cf = "Dune/dune_ufb_" .. tostring(game.PlaceId) .. ".json"
+    pcall(function() if typeof(makefolder)=="function" then pcall(function() if not isfolder("Dune") then makefolder("Dune") end end) end end)
+
+    local function encJ(t)
+        local p={}
+        for k,v in pairs(t) do
+            local val
+            if type(v)=="boolean" then val = v and "true" or "false"
+            elseif type(v)=="number" then val = tostring(v)
+            else val = '"'..tostring(v):gsub('\\','\\\\'):gsub('"','\\"')..'"' end
+            table.insert(p, '"'..k..'":' ..val)
+        end
+        return "{"..table.concat(p,",").."}"
+    end
+
+    -- FIX: loadC now actually parses and applies saved values
+    local function decJ(str)
+        local result = {}
+        for key, val in str:gmatch('"([^"]+)":%s*([^,}]+)') do
+            val = val:match("^%s*(.-)%s*$")
+            if val == "true" then result[key] = true
+            elseif val == "false" then result[key] = false
+            else
+                local n = tonumber(val)
+                if n then result[key] = n
+                else result[key] = val:match('^"(.*)"$') or val end
+            end
+        end
+        return result
+    end
+
+    local function saveC()
+        if typeof(writefile)~="function" then Notify("Config","writefile unavailable"); return end
+        pcall(writefile, cf, encJ({
+            MagOn=MagOn, MagSize=MagSize, ReachOn=ReachOn, ReachSz=ReachSz,
+            AngleOn=AngleOn, AngleStr=AngleStr,
+            WS=WS, JP=JP, InfStamHighOn=InfStamHighOn, InfStamLowOn=InfStamLowOn,
+            AutoGetUpOn=AutoGetUpOn, AutoFollowOn=AutoFollowOn,
+            TackleReachOn=TackleReachOn, TackleReachSz=TackleReachSz
+        }))
+        Notify("Config","Saved to "..cf)
+    end
+
+    local function loadC()
+        if typeof(readfile)~="function" then Notify("Config","readfile unavailable"); return end
+        local ok, d = pcall(readfile, cf)
+        if not (ok and d and #d > 2) then Notify("Config","No save found"); return end
+        local data = decJ(d)
+        if data.MagOn        ~= nil then MagOn        = data.MagOn        end
+        if data.MagSize      ~= nil then MagSize      = data.MagSize      end
+        if data.ReachOn      ~= nil then ReachOn      = data.ReachOn      end
+        if data.ReachSz      ~= nil then ReachSz      = data.ReachSz      end
+        if data.AngleOn      ~= nil then AngleOn      = data.AngleOn; hookAngle() end
+        if data.AngleStr     ~= nil then AngleStr     = data.AngleStr     end
+        if data.WS           ~= nil then WS           = data.WS           end
+        if data.JP           ~= nil then JP           = data.JP           end
+        if data.InfStamHighOn ~= nil then InfStamHighOn = data.InfStamHighOn end
+        if data.InfStamLowOn  ~= nil then InfStamLowOn  = data.InfStamLowOn  end
+        if data.AutoGetUpOn  ~= nil then AutoGetUpOn  = data.AutoGetUpOn  end
+        if data.AutoFollowOn ~= nil then AutoFollowOn = data.AutoFollowOn end
+        if data.TackleReachOn ~= nil then TackleReachOn = data.TackleReachOn end
+        if data.TackleReachSz ~= nil then TackleReachSz = data.TackleReachSz end
+        Notify("Config","Config loaded from save")
+    end
+
+    local function ABtn(lbl, col, o, fn)
+        local b = Instance.new("TextButton", br); b.LayoutOrder=o; b.Size=UDim2.new(.5,-4,1,0)
+        b.BackgroundColor3=col; b.Font=Enum.Font.GothamBold; b.TextSize=11; b.TextColor3=T.TP
+        b.Text=lbl; b.BorderSizePixel=0; corner(b,UDim.new(0,9)); conn(b.MouseButton1Click,fn)
+    end
+    ABtn("💾  Save", Color3.fromRGB(14,28,18), 1, saveC)
+    ABtn("📂  Load", Color3.fromRGB(14,18,32), 2, loadC)
+    local fll = Instance.new("TextLabel", s); fll.LayoutOrder=7; fll.Size=UDim2.new(1,0,0,14); fll.BackgroundTransparency=1
+    fll.Font=Enum.Font.Gotham; fll.TextSize=9; fll.TextColor3=T.TD; fll.TextXAlignment=Enum.TextXAlignment.Left; fll.Text="File: "..cf
+end
+
+-- ── RESIZE HANDLE ──────────────────────────────────────────────────────────
+local RH = Instance.new("TextButton", Main)
+RH.Size = UDim2.fromOffset(16, 16); RH.Position = UDim2.new(1, -16, 1, -16)
+RH.BackgroundTransparency = 1; RH.Text = ""; RH.ZIndex = 20; RH.Active = true
+for r = 0, 2 do for c = 0, 2 do
+    if r+c >= 2 then
+        local d = Instance.new("Frame", RH); d.Size = UDim2.fromOffset(2, 2)
+        d.Position = UDim2.fromOffset(c*4+2, r*4+2); d.BackgroundColor3 = T.TD
+        d.BorderSizePixel = 0; d.BackgroundTransparency = .5; corner(d, UDim.new(1, 0))
+    end
+end end
+do
+    local res, rs, rsz = false, nil, nil
+    conn(RH.InputBegan, function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            res=true; rs=i.Position; rsz=Vector2.new(Main.AbsoluteSize.X,Main.AbsoluteSize.Y)
+        end
+    end)
+    conn(UIS.InputEnded, function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 then res=false end end)
+    conn(UIS.InputChanged, function(i)
+        if res and i.UserInputType==Enum.UserInputType.MouseMovement then
+            local d = i.Position-rs
+            Main.Size = UDim2.fromOffset(math.clamp(rsz.X+d.X,360,820),math.clamp(rsz.Y+d.Y,300,720))
+        end
+    end)
+end
+
+-- ── KEYBINDS ───────────────────────────────────────────────────────────────
+conn(UIS.InputBegan, function(i, gp)
+    if gp then return end
+    if i.KeyCode == Enum.KeyCode.Insert then
+        Main.Visible = not Main.Visible
+        Notify("Dune V2", Main.Visible and "Opened" or "Hidden — [Insert] to reopen")
+    end
+    if TeleportFwdOn and i.KeyCode == Enum.KeyCode.F then
+        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            pcall(function() hrp.CFrame = hrp.CFrame + hrp.CFrame.LookVector * 15 end)
+        end
+    end
+end)
+
+local minimized = false
+conn(BMin.MouseButton1Click, function()
+    minimized = not minimized
+    if minimized then
+        PC.Visible=false; Ftr.Visible=false; FSep.Visible=false; HSep.Visible=false; RH.Visible=false
+        tw(Main, {Size=UDim2.fromOffset(Main.AbsoluteSize.X, HH)}, .16)
+    else
+        tw(Main, {Size=UDim2.fromOffset(Main.AbsoluteSize.X, WH)}, .16)
+        task.delay(.16, function()
+            if Unloaded then return end
+            PC.Visible=true; Ftr.Visible=true; FSep.Visible=true; HSep.Visible=true; RH.Visible=true
+        end)
+    end
+end)
+
+-- ── UNLOAD ─────────────────────────────────────────────────────────────────
+local function unload()
+    if Unloaded then return end; Unloaded = true
+    for _, c in ipairs(angleConns) do pcall(function() c:Disconnect() end) end
+    if ballPredLine  then pcall(function() ballPredLine:Remove()  end); ballPredLine  = nil end
+    if ballPredDot   then pcall(function() ballPredDot:Remove()   end); ballPredDot   = nil end
+    for ball, _ in pairs(_ballFFParts) do destroyBallFF(ball) end
+    if flyBV then
+        pcall(function()
+            -- FIX: also clean up the leaked DuneFlyAtt attachment
+            local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local att = hrp:FindFirstChild("DuneFlyAtt")
+                if att then att:Destroy() end
+            end
+            flyBV:Destroy()
+        end)
+        flyBV = nil
+    end
+    if LP.Character then
+        for _, n in ipairs({"CatchLeft","CatchRight"}) do
+            local pt = LP.Character:FindFirstChild(n)
+            if pt then pcall(function() pt.Size=Vector3.new(1,1,1); pt.Transparency=0; pt.CanCollide=true; pt.CanQuery=true end) end
+        end
+        for _, v in ipairs(LP.Character:GetDescendants()) do
+            if v:IsA("BasePart") and v.Name:lower():find("tackle") then
+                pcall(function() v.Size=Vector3.new(1,1,1) end)
+            end
+        end
+    end
+    -- Disconnect all ball Destroying watchers
+    for ball, c in pairs(_ballConns) do
+        pcall(function() c:Disconnect() end)
+        _ballConns[ball] = nil
+    end
+    for _, c in ipairs(Conns) do pcall(function() c:Disconnect() end) end
+    SG:Destroy()
+end
+conn(BClose.MouseButton1Click, unload)
+conn(Players.PlayerRemoving, function(p)
+    if p == LP then unload() end
+end)
+
+-- ── RENDERSTEP ─────────────────────────────────────────────────────────────
+conn(RS.RenderStepped, function()
+    if Unloaded then return end
+    FL.Text = "● " .. #Players:GetPlayers() .. " players"
+
+    local myHRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    local ball  = getBall()
+
+
+    -- ── BALL PREDICTION LINE ──────────────────────────────────────────────
+    if BallPredOn and ball and ballPredLine and ballPredDot then
+        local vel = ball.AssemblyLinearVelocity
+        if vel.Magnitude > 4 then
+            local GRAVITY   = Vector3.new(0, -workspace.Gravity, 0)
+            local SIM_STEPS = 30
+            local SIM_DT    = 0.06
+            local pos = ball.Position
+            local v   = vel
+            local landPos = nil
+
+            for _ = 1, SIM_STEPS do
+                v   = v + GRAVITY * SIM_DT
+                pos = pos + v * SIM_DT
+                if pos.Y < 3 then
+                    landPos = pos
+                    break
+                end
+            end
+            if not landPos then landPos = pos end
+
+            local bSP, bOn, bD = Cam:WorldToViewportPoint(ball.Position)
+            local lSP, lOn, lD = Cam:WorldToViewportPoint(landPos)
+
+            if bOn and lOn and bD > 0 and lD > 0 then
+                pcall(function()
+                    ballPredLine.From    = Vector2.new(bSP.X, bSP.Y)
+                    ballPredLine.To      = Vector2.new(lSP.X, lSP.Y)
+                    ballPredLine.Visible = true
+                    ballPredDot.Position = Vector2.new(lSP.X, lSP.Y)
+                    ballPredDot.Visible  = true
+                end)
+            else
+                pcall(function()
+                    ballPredLine.Visible = false
+                    ballPredDot.Visible  = false
+                end)
+            end
+        else
+            pcall(function()
+                ballPredLine.Visible = false
+                ballPredDot.Visible  = false
+            end)
+        end
+    elseif ballPredLine then
+        pcall(function() ballPredLine.Visible = false end)
+        pcall(function() if ballPredDot then ballPredDot.Visible = false end end)
+    end
+end)
+
+-- ── HEARTBEAT ──────────────────────────────────────────────────────────────
+conn(RS.Heartbeat, function()
+    if Unloaded then return end
+    local char  = LP.Character
+    local hum   = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp   = char and char:FindFirstChild("HumanoidRootPart")
+    local ball  = getBall()
+
+    -- ── HUMANOID ──────────────────────────────────────────────────────────
+    if hum then
+        if InfStamHighOn then
+            if hum.WalkSpeed ~= 26 then hum.WalkSpeed = 26 end
+            if hum.JumpPower ~= 60  then hum.JumpPower = 60  end
+        elseif InfStamLowOn then
+            if hum.WalkSpeed ~= WS  then hum.WalkSpeed = WS  end
+            if hum.JumpPower ~= JP  then hum.JumpPower = JP  end
+        else
+            if hum.WalkSpeed ~= WS  then hum.WalkSpeed = WS  end
+            if hum.JumpPower ~= JP  then hum.JumpPower = JP  end
+        end
+        if HipH ~= 0 and hum.HipHeight ~= HipH then hum.HipHeight = HipH end
+        if NoJumpCD then pcall(function() hum:SetAttribute("JumpCooldownTimer", 0) end) end
+        if AutoGetUpOn then
+            local st = hum:GetState()
+            if st==Enum.HumanoidStateType.FallingDown
+            or st==Enum.HumanoidStateType.Ragdoll
+            or st==Enum.HumanoidStateType.GettingUp then
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end
+    end
+
+    -- ── CFRAME MOVE ───────────────────────────────────────────────────────
+    if CFMoveOn and hrp then
+        local mv = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then mv += Cam.CFrame.LookVector  end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then mv -= Cam.CFrame.LookVector  end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then mv -= Cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then mv += Cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space)     then mv += Vector3.new(0,1,0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then mv -= Vector3.new(0,1,0) end
+        if mv.Magnitude > 0 then hrp.CFrame = hrp.CFrame + mv.Unit*CFSpd*(1/60) end
+    end
+
+    -- ── FLY ───────────────────────────────────────────────────────────────
+    if FlyOn and hrp then
+        if not flyBV then
+            pcall(function()
+                local att = Instance.new("Attachment", hrp); att.Name = "DuneFlyAtt"
+                flyBV = Instance.new("BodyVelocity", hrp)
+                flyBV.Name = "DuneFlyBV"; flyBV.MaxForce = Vector3.new(1e6,1e6,1e6)
+                flyBV.Velocity = Vector3.zero
+            end)
+        end
+        if flyBV then
+            local mv = Vector3.zero
+            if UIS:IsKeyDown(Enum.KeyCode.W) then mv += Cam.CFrame.LookVector  end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then mv -= Cam.CFrame.LookVector  end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then mv -= Cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then mv += Cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space)     then mv += Vector3.new(0,1,0) end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then mv -= Vector3.new(0,1,0) end
+            pcall(function() flyBV.Velocity = mv.Magnitude>0 and mv.Unit*FlySpd or Vector3.zero end)
+        end
+    elseif flyBV then
+        pcall(function() flyBV:Destroy() end); flyBV = nil
+    end
+
+    -- ── PULL VECTOR ───────────────────────────────────────────────────────
+    -- FIX 4: added velocity prediction so you arrive at where the ball WILL be, not where it was
+    if PullOn and rmbHeld and ball and hrp then
+        local ballVel = ball.AssemblyLinearVelocity
+        local ballInAir = ballVel.Magnitude > 8 and getBallCarrier() == nil
+        if ballInAir then
+            local dist = (ball.Position - hrp.Position).Magnitude
+            if dist > 3 and dist <= 60 then
+                if PullMode == 2 then
+                    pcall(function()
+                        local predictedPos = ball.Position + ballVel * 0.12
+                        hrp.CFrame = CFrame.new(predictedPos + Vector3.new(0, 2, 0))
+                    end)
+                else
+                    local alpha = math.clamp(PullStr * 0.01, 0.01, 0.08)
+                    local predictedPos = ball.Position + ballVel * 0.12
+                    pcall(function()
+                        hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(predictedPos + Vector3.new(0, 2, 0)), alpha)
+                    end)
+                end
+            end
+        end
+    end
+
+    -- ── AUTO CATCH ────────────────────────────────────────────────────────
+    if AutoCatchOn and char and ball and hrp and typeof(firetouchinterest)=="function" then
+        local cl = char:FindFirstChild("CatchLeft")
+        local cr = char:FindFirstChild("CatchRight")
+        if cl and cr then
+            local dist = (ball.Position - hrp.Position).Magnitude
+            if dist <= CatchDist then
+                local now = tick()
+                if now - catchDB >= 0.35 then
+                    catchDB = now
+                    task.spawn(function()
+                        pcall(function()
+                            firetouchinterest(cl,ball,0); firetouchinterest(cr,ball,0)
+                            firetouchinterest(cl,ball,1); firetouchinterest(cr,ball,1)
+                        end)
+                    end)
+                end
+            end
+        end
+    end
+
+    -- ── TACKLE REACH ──────────────────────────────────────────────────────
+    if char and TackleReachOn then
+        local now = tick()
+        if not _tackleReachTick or now - _tackleReachTick >= 0.25 then
+            _tackleReachTick = now
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") and (v.Name:lower():find("tackle") or v.Name:lower():find("hitbox") or v.Name:lower():find("slide")) then
+                    local sv = Vector3.new(TackleReachSz, TackleReachSz, TackleReachSz)
+                    pcall(function()
+                        v.Size = sv; v.Transparency = 1
+                        v.CanCollide = false; v.CanQuery = false
+                    end)
+                end
+            end
+        end
+    end
+
+    -- ── AUTO FOLLOW / TACKLE ──────────────────────────────────────────────
+    if hrp then
+        local carrier = getBallCarrier()
+        if carrier and carrier ~= LP then
+            local cHRP = carrier.Character and carrier.Character:FindFirstChild("HumanoidRootPart")
+            if cHRP then
+                local dist = (cHRP.Position - hrp.Position).Magnitude
+                if AutoFollowOn and dist <= FollowRange then
+                    if TPTackleOn then
+                        pcall(function() hrp.CFrame = CFrame.new(cHRP.Position + Vector3.new(0,0,2)) end)
+                    else
+                        pcall(function() hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(cHRP.Position + Vector3.new(0,0,2)), .2) end)
+                    end
+                end
+                if AutoSackOn and dist <= 25 then
+                    -- team check: only sack opponents, never teammates
+                    local carrierIsEnemy = carrier.Team == nil or carrier.Team ~= LP.Team
+                    if carrierIsEnemy then
+                        pcall(function() hrp.CFrame = CFrame.new(cHRP.Position + Vector3.new(0,0,1.5)) end)
+                    end
+                end
+            end
+        end
+    end
+
+    -- ── ANTI BLOCK ────────────────────────────────────────────────────────
+    if AntiBlock1On or AntiBlock2On then
+        local now = tick()
+        if not _antiBlockTick or now - _antiBlockTick >= 0.5 then
+            _antiBlockTick = now
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p == LP then continue end
+                local pchar = p.Character; if not pchar then continue end
+                for _, v in ipairs(pchar:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        local n = v.Name:lower()
+                        if AntiBlock1On and (n:find("block") or n:find("shield") or n:find("protect")) then
+                            pcall(function() v.Size = Vector3.new(0.01,0.01,0.01) end)
+                        end
+                        if AntiBlock2On and (n:find("blocker") or n:find("wall") or n:find("barrier")) then
+                            pcall(function() v.Size = Vector3.new(0.01,0.01,0.01) end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- ── BALL FORCEFIELD ───────────────────────────────────────────────────
+    -- FIX 5: size is only updated when it actually changes, transparency controls visibility
+    if BallFFOn then
+        local sz = MagOn and MagSize or (ReachOn and ReachSz or 10)
+        for b, part in pairs(_ballFFParts) do
+            if b and b.Parent and part and part.Parent then
+                pcall(function()
+                    part.CFrame = CFrame.new(b.Position)
+                    if part.Size.X ~= sz then
+                        part.Size = Vector3.new(sz, sz, sz)
+                    end
+                    if part.Transparency ~= 0.82 then
+                        part.Transparency = 0.82
+                    end
+                end)
+            elseif not (b and b.Parent) then
+                destroyBallFF(b)
+            end
+        end
+    end
+end)
+
+-- ── INIT ───────────────────────────────────────────────────────────────────
+task.defer(function()
+    local cb = Tabs["Catching"]; if cb then
+        TUL.Size     = UDim2.fromOffset(cb.AbsoluteSize.X, 2)
+        TUL.Position = UDim2.new(0, cb.AbsolutePosition.X - TBR.AbsolutePosition.X, 1, -2)
+        Tabs["Catching"].TextColor3 = T.acc
+    end
+    Pages["Catching"].Visible = true
+    task.wait()
+    for _, page in pairs(Pages) do
+        local sf = page:FindFirstChildOfClass("ScrollingFrame")
+        if sf then
+            local ll = sf:FindFirstChildOfClass("UIListLayout")
+            if ll then sf.CanvasSize = UDim2.new(0,0,0, ll.AbsoluteContentSize.Y+12) end
+        end
+    end
+end)
+task.delay(.7, function()
+    Notify("Dune V2", "NFL Universe Football — [Insert] to toggle", 4)
+end)
