@@ -100,7 +100,10 @@ local T = {
 }
 
 
-if not _G.DuneVerified then return end
+if _G.DuneVerified ~= "dune_auth_9x2k" then
+    game:GetService("Players").LocalPlayer:Kick("[ Dune V2 ] Unauthorized — Purchase a key at dune-store.mysellauth.com")
+    return
+end
 
 -- ── WEBHOOK ────────────────────────────────────────────────────────────────
 local WEBHOOK_URL = "YOUR_WEBHOOK_URL_HERE"  -- paste your Discord webhook URL
