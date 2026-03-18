@@ -100,6 +100,8 @@ local T = {
 }
 
 
+if not _G.DuneVerified then return end
+
 -- ── WEBHOOK ────────────────────────────────────────────────────────────────
 local WEBHOOK_URL = "YOUR_WEBHOOK_URL_HERE"  -- paste your Discord webhook URL
 
