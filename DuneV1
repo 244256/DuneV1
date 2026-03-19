@@ -1543,7 +1543,15 @@ do
     local pingTileFrame = mkTile(tileRow, 2, "PING", tostring(math.floor(LP:GetNetworkPing() * 1000)) .. " ms", T.online)
     local pingValLabel  = getTileVal(pingTileFrame)
 
-    local tileRow2=mkTileRow(4)
+    local tileRow2 = Instance.new("Frame", root)
+    tileRow2.LayoutOrder = 4
+    tileRow2.Size = UDim2.new(1, 0, 0, 52)
+    tileRow2.BackgroundTransparency = 1
+    tileRow2.BorderSizePixel = 0
+    local tileRow2L = Instance.new("UIListLayout", tileRow2)
+    tileRow2L.FillDirection = Enum.FillDirection.Horizontal
+    tileRow2L.Padding = UDim.new(0, 6)
+    tileRow2L.SortOrder = Enum.SortOrder.LayoutOrder
 
     local pingTile = mkTile(tileRow2, 1, "PLACE ID",  tostring(game.PlaceId), T.TD)
     mkTile(tileRow2, 2, "REGION", tostring(game:GetService("LocalizationService").RobloxLocaleId or "N/A"), T.TD)
