@@ -821,66 +821,92 @@ local function Drop(p, txt, opts, di, cb, ord)
     chv.Size = UDim2.fromOffset(20,26); chv.Position = UDim2.new(1,-24,0,0)
     chv.BackgroundTransparency = 1; chv.Font = Enum.Font.GothamBold; chv.TextSize = 10
     chv.TextColor3 = T.TD; chv.Text = "▾"
+
     local curIdx = di; btn.Text = opts[curIdx]; cb(curIdx)
-    local lh = #opts*24 + math.max(0,#opts-1)*2 + 8
+    local lh = #opts * 26 + 8
+
+    -- dl lives in SG so it floats above everything.
+    -- NO ClipsDescendants — that was blocking clicks on items.
+    -- We show/hide via Visible + a quick fade instead of size tween.
     local dl = Instance.new("Frame", SG)
     dl.BackgroundColor3 = T.card; dl.BorderSizePixel = 0
-    dl.ZIndex = 200; dl.Visible = false; dl.Size = UDim2.fromOffset(0,0); dl.ClipsDescendants = true
+    dl.ZIndex = 220; dl.Visible = false
+    dl.ClipsDescendants = false   -- MUST be false so items are always hittable
     corner(dl, UDim.new(0,7)); mkStroke(dl, T.bdr)
     local dll = Instance.new("UIListLayout", dl)
     dll.Padding = UDim.new(0,2); dll.SortOrder = Enum.SortOrder.LayoutOrder
     local dlp = Instance.new("UIPadding", dl)
     dlp.PaddingTop=UDim.new(0,4); dlp.PaddingBottom=UDim.new(0,4)
     dlp.PaddingLeft=UDim.new(0,4); dlp.PaddingRight=UDim.new(0,4)
+
     local open = false
+
     local function updateColors()
         for _,ch in ipairs(dl:GetChildren()) do
-            if ch:IsA("TextButton") then ch.TextColor3 = ch.Text==opts[curIdx] and T.acc or T.TSub end
+            if ch:IsA("TextButton") then
+                ch.TextColor3 = ch.Text == opts[curIdx] and T.acc or T.TSub
+            end
         end
     end
+
     local function close()
-        if not open then return end; open = false
-        local w = dl.AbsoluteSize.X
-        tw(dl, {Size=UDim2.fromOffset(w,0)}, .12)
-        task.delay(.13, function() if not open then dl.Visible=false end end)
+        if not open then return end
+        open = false
+        dl.Visible = false
         tw(chv, {Rotation=0}, .12)
     end
-    for i,opt in ipairs(opts) do
+
+    for i, opt in ipairs(opts) do
         local it = Instance.new("TextButton", dl)
-        it.LayoutOrder=i; it.Size=UDim2.new(1,0,0,24); it.BackgroundColor3=T.btn
-        it.Font=Enum.Font.Gotham; it.TextSize=11; it.TextColor3=i==curIdx and T.acc or T.TSub
-        it.TextXAlignment=Enum.TextXAlignment.Left; it.Text=opt; it.BorderSizePixel=0
-        it.ZIndex=201; corner(it, UDim.new(0,5))
+        it.LayoutOrder = i
+        it.Size = UDim2.new(1,0,0,24)
+        it.BackgroundColor3 = T.btn
+        it.Font = Enum.Font.Gotham; it.TextSize = 11
+        it.TextColor3 = i==curIdx and T.acc or T.TSub
+        it.TextXAlignment = Enum.TextXAlignment.Left
+        it.Text = opt; it.BorderSizePixel = 0
+        it.ZIndex = 222; it.Active = true
+        corner(it, UDim.new(0,5))
         Instance.new("UIPadding", it).PaddingLeft = UDim.new(0,8)
-        conn(it.MouseEnter,  function() tw(it,{BackgroundColor3=T.btnH},.1) end)
-        conn(it.MouseLeave,  function() tw(it,{BackgroundColor3=T.btn},.1)  end)
-        conn(it.MouseButton1Click, function()
-            curIdx=i; btn.Text=opt; cb(i); updateColors(); close()
+        conn(it.MouseEnter, function() tw(it,{BackgroundColor3=T.btnH},.1) end)
+        conn(it.MouseLeave, function() tw(it,{BackgroundColor3=T.btn},.1) end)
+        -- Activated fires reliably for both mouse and touch, unlike MouseButton1Click
+        -- which can be blocked by parent ClipsDescendants or scroll containers
+        it.Activated:Connect(function()
+            curIdx = i
+            btn.Text = opt
+            cb(i)
+            updateColors()
+            close()
         end)
     end
-    conn(btn.MouseButton1Click, function()
+
+    btn.Activated:Connect(function()
         if open then close(); return end
-        local ap=btn.AbsolutePosition; local as=btn.AbsoluteSize
-        if as.X==0 then return end
-        open=true
-        dl.Size=UDim2.fromOffset(as.X,0)
-        dl.Position=UDim2.fromOffset(ap.X, ap.Y+as.Y+2)
-        dl.Visible=true
-        tw(dl,{Size=UDim2.fromOffset(as.X,lh)},.14)
-        tw(chv,{Rotation=180},.14)
+        local ap = btn.AbsolutePosition
+        local as = btn.AbsoluteSize
+        if as.X == 0 then return end
+        open = true
+        dl.Size     = UDim2.fromOffset(as.X, lh)
+        dl.Position = UDim2.fromOffset(ap.X, ap.Y + as.Y + 2)
+        dl.Visible  = true
+        tw(chv, {Rotation=180}, .14)
+        updateColors()
     end)
-    conn(UIS.InputBegan, function(i)
-        if not open then return end
-        if i.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+
+    -- Close when clicking anywhere outside
+    conn(UIS.InputBegan, function(inp, gp)
+        if gp or not open then return end
+        if inp.UserInputType ~= Enum.UserInputType.MouseButton1
+        and inp.UserInputType ~= Enum.UserInputType.Touch then return end
         task.defer(function()
             if not open then return end
-            local mp=UIS:GetMouseLocation()
-            local dp=dl.AbsolutePosition; local ds=dl.AbsoluteSize
-            local bp=btn.AbsolutePosition; local bs=btn.AbsoluteSize
-            if not(mp.X>=dp.X and mp.X<=dp.X+ds.X and mp.Y>=dp.Y and mp.Y<=dp.Y+ds.Y)
-            and not(mp.X>=bp.X and mp.X<=bp.X+bs.X and mp.Y>=bp.Y and mp.Y<=bp.Y+bs.Y) then
-                close()
+            local mp = UIS:GetMouseLocation()
+            local function inside(f)
+                local fp=f.AbsolutePosition; local fs=f.AbsoluteSize
+                return mp.X>=fp.X and mp.X<=fp.X+fs.X and mp.Y>=fp.Y and mp.Y<=fp.Y+fs.Y
             end
+            if not inside(dl) and not inside(btn) then close() end
         end)
     end)
 end
