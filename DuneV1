@@ -183,7 +183,7 @@ local TeleportFwdOn = false
 
 -- ── CATCH ZONE STATE ───────────────────────────────────────────────────────
 local CatchZoneOn      = false
-local CatchZoneRadius  = 14
+local CatchZoneRadius  = 6
 local CatchZoneAssist  = true
 local _czOuter         = nil
 local _czBB            = nil
@@ -191,6 +191,9 @@ local _czInZone        = false
 local _czPulsing       = false
 local _czCatchBox      = nil
 local _czLastFire      = 0
+local _czLastBallPos   = nil
+local _czLastBallTick  = 0
+local _czBallSpeed     = 0
 
 local Conns         = {}
 local Unloaded      = false
@@ -299,14 +302,45 @@ local function watchBall(ball)
     _ballConns[ball] = ball.Destroying:Connect(function()
         if _ball == ball then _ball = nil end
         resetCatchParts()
-        czDestroyVisuals()   -- destroys _czBB and _czOuter, resets _czInZone/_czPulsing
-        _czCatchBox     = nil
-        _czLastFire     = 0
-        _G._czCatchWarn = nil
-        _G._czFTIWarn   = nil
+        czDestroyVisuals()
+        _czCatchBox    = nil; _czLastFire=0
+        _czLastBallPos = nil; _czBallSpeed=0
+        _G._czCatchWarn=nil;  _G._czFTIWarn=nil
         _ballConns[ball] = nil
     end)
 end
+
+-- Watch for drive changes: UFB reuses the ball but swaps Hitboxes children
+-- between drives. When our player's hitbox folder changes, reset the cache.
+local function watchHitboxes()
+    local hitboxes = nil
+    -- Poll for Hitboxes folder since ball may not exist yet
+    task.spawn(function()
+        while not Unloaded do
+            task.wait(1)
+            local ball = getBall()
+            if ball and ball.Parent then
+                local hb = ball.Parent:FindFirstChild("Hitboxes")
+                if hb and hb ~= hitboxes then
+                    hitboxes = hb
+                    -- New hitboxes folder = new drive, reset CatchBox cache
+                    _czCatchBox    = nil
+                    _czLastFire    = 0
+                    _czLastBallPos = nil
+                    _czBallSpeed   = 0
+                    -- Watch for child changes within this drive's hitboxes
+                    hb.ChildAdded:Connect(function()
+                        _czCatchBox = nil  -- force re-lookup when roster changes
+                    end)
+                    hb.ChildRemoved:Connect(function()
+                        _czCatchBox = nil
+                    end)
+                end
+            end
+        end
+    end)
+end
+watchHitboxes()
 
 -- Ball is at Workspace.Games.{id}.Replicated.Football (MeshPart inside Folder)
 -- workspace:GetChildren() only sees top-level — must use GetDescendants
@@ -1672,14 +1706,25 @@ conn(RS.Heartbeat, function()
     end
 
     -- ── CATCH ZONE ────────────────────────────────────────────────────────
-    -- Core mechanic: fires every Heartbeat while ball is not held by anyone.
-    if CatchZoneOn and ball then        local bPos    = ball.Position
+    if CatchZoneOn and ball then
+        local bPos    = ball.Position
         local carrier = getBallCarrier()
-        -- CRITICAL FIX: removed bVel.Magnitude > 3 — AssemblyLinearVelocity is
-        -- always Vector3.zero on the client for server-physics objects. That check
-        local airborne = (carrier == nil)
 
-        -- BillboardGui + sphere — sphere offset slightly above ball to avoid trail
+        -- Manual speed tracking: AssemblyLinearVelocity is always 0 on client
+        -- for server-physics objects, so we track position change ourselves.
+        local now2 = tick()
+        local dt2  = now2 - _czLastBallTick
+        if _czLastBallPos and dt2 > 0 then
+            _czBallSpeed = (_czLastBallPos - bPos).Magnitude / dt2
+        end
+        _czLastBallPos  = bPos
+        _czLastBallTick = now2
+
+        -- Ball is truly airborne: moving fast (>8 studs/sec) AND no carrier
+        -- This prevents firing when ball is sitting still on the ground
+        local airborne = carrier == nil and _czBallSpeed > 8
+
+        -- BillboardGui + sphere
         if not _czBB then czBuildVisuals(CatchZoneRadius) end
         if _czBB then pcall(function() _czBB.Adornee = ball end) end
         if _czOuter then pcall(function()
@@ -1693,33 +1738,30 @@ conn(RS.Heartbeat, function()
         end) end
 
         if airborne and char and hrp then
-            -- CONFIRMED: CatchBox is at Replicated.Hitboxes.{Player}.CatchBox
-            -- It's a Part with CanTouch=true. UFB listens on its Touched event.
-            -- firetouchinterest(CatchBox, Football, 0/1) is the correct call.
-
             local closestDist = (hrp.Position - bPos).Magnitude
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                -- Only fire when close enough + throttle to 10x/sec max
-                -- Firing every frame at 60fps caused the lag
                 local now = tick()
-                if closestDist < CatchZoneRadius and now - (_czLastFire or 0) >= 0.1 then
+                if closestDist < CatchZoneRadius and now - _czLastFire >= 0.1 then
                     _czLastFire = now
 
-                    -- Look up CatchBox once per ball spawn
+                    -- Cache CatchBox (Part, not BoolValue) once per ball spawn
                     if not _czCatchBox then
                         pcall(function()
                             local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
                             if hitboxes then
                                 local pBox = hitboxes:FindFirstChild(LP.Name)
-                                if pBox then _czCatchBox = pBox:FindFirstChild("CatchBox") end
+                                if pBox then
+                                    _czCatchBox = pBox:FindFirstChild("CatchBox")
+                                end
                             end
                         end)
                     end
 
                     if _czCatchBox then
                         if typeof(firetouchinterest) == "function" then
+                            -- Player's CatchBox "touches" the Football
                             pcall(firetouchinterest, _czCatchBox, ball, 0)
                             pcall(firetouchinterest, _czCatchBox, ball, 1)
                         elseif not _G._czFTIWarn then
@@ -1728,7 +1770,7 @@ conn(RS.Heartbeat, function()
                         end
                     elseif not _G._czCatchWarn then
                         _G._czCatchWarn = true
-                        Notify("Catch Zone","CatchBox not found in Hitboxes",5)
+                        Notify("Catch Zone","CatchBox not found — check Hitboxes path",5)
                     end
                 end
             end
@@ -1749,9 +1791,14 @@ conn(RS.Heartbeat, function()
             end
 
         else
-            _czInZone=false
+            -- Ball held or on ground — reset zone state
+            if _czInZone then
+                _czInZone=false
+                if not _czPulsing then czTw(Color3.fromRGB(220,170,80),0.72,0.18) end
+            end
             if _G.DuneCZStatus then pcall(function()
-                _G.DuneCZStatus.Text="Ball held"; _G.DuneCZStatus.TextColor3=T.TD
+                local txt = carrier and "Ball held" or "Ball on ground"
+                _G.DuneCZStatus.Text=txt; _G.DuneCZStatus.TextColor3=T.TD
                 if _G.DuneCZDist       then _G.DuneCZDist.Text="--" end
                 if _G.DuneCZDot        then _G.DuneCZDot.BackgroundColor3=T.TD end
                 if _G.DuneCZCardStroke then _G.DuneCZCardStroke.Color=T.bdr end
