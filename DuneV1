@@ -193,6 +193,7 @@ local _czCatchBox      = nil
 local _czLastFire      = 0
 local _czLastBallPos   = nil
 local _czLastBallTick  = 0
+local _getBallScanTick = 0
 local _czBallSpeed     = 0
 
 local Conns         = {}
@@ -305,6 +306,7 @@ local function watchBall(ball)
         czDestroyVisuals()
         _czCatchBox    = nil; _czLastFire=0
         _czLastBallPos = nil; _czBallSpeed=0
+        _getBallScanTick = 0  -- rescan immediately for new ball
         _G._czCatchWarn=nil;  _G._czFTIWarn=nil
         _ballConns[ball] = nil
     end)
@@ -342,10 +344,19 @@ local function watchHitboxes()
 end
 watchHitboxes()
 
+local _getBallScanTick = 0
 local function getBall()
-    -- Return cached reference immediately — ball is found at startup and never rescanned
     if _ball and _ball.Parent then return _ball end
     _ball = nil
+    -- Only rescan every 3s to avoid lag, but always rescan if cache goes stale
+    local now = tick()
+    if now - _getBallScanTick < 3 then return nil end
+    _getBallScanTick = now
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) then
+            _ball = v; watchBall(v); return v
+        end
+    end
     return nil
 end
 
@@ -1709,7 +1720,7 @@ conn(RS.Heartbeat, function()
     -- ── PULL VECTOR ───────────────────────────────────────────────────────
     if PullOn and rmbHeld and ball and hrp then
         local carrier   = getBallCarrier()
-        local ballInAir = carrier == nil and _czBallSpeed > 8
+        local ballInAir = carrier == nil and _czBallSpeed > 2
         if ballInAir then
             -- Use last known velocity direction from position delta
             local predicted = ball.Position + Vector3.new(0, 2, 0)
@@ -1727,7 +1738,12 @@ conn(RS.Heartbeat, function()
     if CatchZoneOn and ball then
         local bPos    = ball.Position
         local carrier = getBallCarrier()
-        local airborne = carrier == nil and _czBallSpeed > 8
+        -- Two ways to detect airborne:
+        -- 1. Ball is moving (speed > 2 studs/sec client-side)
+        -- 2. Ball is clearly elevated above field (Y > 5) — thrown balls arc up
+        -- Using OR means if replication is slow on speed, height catches it
+        local ballHigh = bPos.Y > 5
+        local airborne = carrier == nil and (_czBallSpeed > 2 or ballHigh)
 
         -- Show sphere only while ball is truly airborne
         if airborne then
