@@ -183,8 +183,7 @@ local CatchZoneOn      = false
 local CatchZoneRadius  = 14      -- studs, adjustable
 local CatchZoneAssist  = true    -- auto-snap catch parts when hands in zone
 local CatchZoneMethod  = 1       -- 1=firetouchinterest, 2=Inflate Hitbox, 3=Part Snap
-local _czOuter         = nil     -- outer glow sphere Part
-local _czInner         = nil     -- inner sphere Part
+local _czOuter         = nil     -- ForceField sphere Part
 local _czBB            = nil     -- BillboardGui on ball
 local _czInZone        = false   -- was player in zone last frame (for edge detection)
 local _czPulsing       = false   -- is pulse animation running
@@ -226,11 +225,9 @@ end
 -- We create them on first Heartbeat tick where ball is airborne, destroy on toggle off.
 
 local function czDestroyVisuals()
-    pcall(function() if _czOuter  then _czOuter:Destroy()  end end)
-    pcall(function() if _czInner  then _czInner:Destroy()  end end)
-    pcall(function() if _czBB     then _czBB:Destroy()     end end)
-    _czOuter = nil; _czInner = nil; _czBB = nil
-    _czInZone = false; _czPulsing = false
+    pcall(function() if _czOuter then _czOuter:Destroy() end end)
+    pcall(function() if _czBB    then _czBB:Destroy()    end end)
+    _czOuter=nil; _czBB=nil; _czInZone=false; _czPulsing=false
 end
 
 local function czMakeSphere(name, sz, col, tr)
@@ -243,8 +240,7 @@ end
 
 local function czBuildVisuals(radius)
     czDestroyVisuals()
-    _czOuter = czMakeSphere("DuneCatchZoneOuter", radius*2,   Color3.fromRGB(220,170,80),  0.55)
-    _czInner = czMakeSphere("DuneCatchZoneInner", radius*1.1, Color3.fromRGB(255,215,110), 0.72)
+    _czOuter = czMakeSphere("DuneCatchZoneOuter", radius*2, Color3.fromRGB(220,170,80), 0.55)
     local bb = Instance.new("BillboardGui")
     bb.Name="DuneCatchZoneBB"; bb.Size=UDim2.fromOffset(110,28)
     bb.StudsOffset=Vector3.new(0,2.8,0); bb.AlwaysOnTop=true
@@ -258,21 +254,19 @@ local function czBuildVisuals(radius)
 end
 
 local function czTw(col, tr, t)
-    pcall(function()
-        if _czOuter then TS_:Create(_czOuter,TweenInfo.new(t,Enum.EasingStyle.Quad),{Color=col,Transparency=tr}):Play() end
-        if _czInner then TS_:Create(_czInner,TweenInfo.new(t,Enum.EasingStyle.Quad),{Color=col,Transparency=tr+0.17}):Play() end
-    end)
+    if _czOuter then pcall(function()
+        TS_:Create(_czOuter,TweenInfo.new(t,Enum.EasingStyle.Quad),{Color=col,Transparency=tr}):Play()
+    end) end
 end
 
 local function czPulseIn()
     if _czPulsing then return end; _czPulsing=true
     task.spawn(function()
         for _=1,3 do
-            czTw(Color3.fromRGB(255,255,180), 0.45, 0.08); task.wait(0.1)
-            czTw(Color3.fromRGB(80,220,120),  0.62, 0.10); task.wait(0.12)
+            czTw(Color3.fromRGB(255,255,180), 0.35, 0.08); task.wait(0.1)
+            czTw(Color3.fromRGB(80,220,120),  0.55, 0.10); task.wait(0.12)
         end
-        czTw(Color3.fromRGB(220,170,80), 0.55, 0.2)
-        _czPulsing=false
+        czTw(Color3.fromRGB(220,170,80), 0.55, 0.2); _czPulsing=false
     end)
 end
 
@@ -1082,26 +1076,18 @@ do
     -- Three completely different ways to register a catch with the server.
     -- Try each one and tell us which works for you.
     Drop(s, "Catch Method", {
-        "A — firetouchinterest",   -- executor API, fires Touched directly, no proximity needed
-        "B — Inflate Hitbox",      -- grows CatchParts into a big sphere, real physics touch
-        "C — Part Snap",           -- teleports ONLY catch parts (not player) onto ball
-    }, 1, function(i)
-        CatchZoneMethod = i
-        local mNames = {"firetouchinterest","Inflate Hitbox","Part Snap"}
-        if CatchZoneOn then
-            Notify("Catch Method", mNames[i] .. " selected")
-        end
-    end, 13)
+        "A — firetouchinterest",
+        "B — getconnections :Fire()",
+        "C — Inflate Hitbox",
+        "D — CFrame Warp",
+    }, 1, function(i) CatchZoneMethod=i end, 13)
 
     Sld(s, "Zone Radius", 5, 40, 14, 1, function(v)
         CatchZoneRadius = v
         if CatchZoneOn and _czOuter then
-            pcall(function()
-                _czOuter.Size = Vector3.new(v*2, v*2, v*2)
-                _czInner.Size = Vector3.new(v*1.1, v*1.1, v*1.1)
-            end)
+            pcall(function() _czOuter.Size = Vector3.new(v*2, v*2, v*2) end)
         end
-    end, 14, "Radius of the catch zone in studs. Only used by methods B and C. Method A ignores this.")
+    end, 14, "Radius of the catch zone in studs. Only used by methods C and D.")
 
     Tog(s, "Catch Assist Active", true, function(v)
         CatchZoneAssist = v
@@ -1718,15 +1704,13 @@ conn(RS.Heartbeat, function()
             if airborne then czBuildVisuals(CatchZoneRadius) end
         else
             pcall(function()
-                _czOuter.CFrame=CFrame.new(bPos); _czInner.CFrame=CFrame.new(bPos)
-                if _czBB then _czBB.Adornee=ball end
+                _czOuter.CFrame = CFrame.new(bPos)
+                if _czBB then _czBB.Adornee = ball end
             end)
             if not _czPulsing then
                 local tgt = airborne and 0.55 or 0.92
                 pcall(function()
-                    if math.abs(_czOuter.Transparency-tgt)>0.02 then
-                        _czOuter.Transparency=tgt; _czInner.Transparency=tgt+0.17
-                    end
+                    if math.abs(_czOuter.Transparency-tgt) > 0.02 then _czOuter.Transparency=tgt end
                 end)
             end
         end
@@ -1754,130 +1738,91 @@ conn(RS.Heartbeat, function()
                 if hrpDist < closestDist then closestDist = hrpDist end
             end
 
-            -- ── METHOD A fires every airborne frame — no proximity gate ───
-            -- firetouchinterest bypasses physics entirely. Proximity doesn't matter.
-            -- The sphere just shows you when you'd "naturally" be catchable.
-            if CatchZoneAssist and CatchZoneMethod == 1 then
-                if typeof(firetouchinterest) == "function" then
-                    for _, catchName in ipairs({"CatchLeft","CatchRight"}) do
-                        local cp = char:FindFirstChild(catchName)
-                        if cp and ball then
-                            pcall(firetouchinterest, cp, ball, 0)
-                        end
-                    end
-                    -- Show "FIRING" status on HUD even outside zone
-                    if _G.DuneCZStatus then
-                        pcall(function()
-                            local d2 = math.floor(closestDist * 10) / 10
-                            _G.DuneCZDist.Text = d2 .. "m"
-                            _G.DuneCZStatus.Text       = "⚡ FIRING"
-                            _G.DuneCZStatus.TextColor3 = Color3.fromRGB(255, 215, 110)
-                            _G.DuneCZDist.TextColor3   = Color3.fromRGB(255, 215, 110)
-                            _G.DuneCZDot.BackgroundColor3 = Color3.fromRGB(255, 215, 110)
-                            _G.DuneCZCardStroke.Color  = Color3.fromRGB(220, 170, 80)
-                        end)
-                    end
-                else
-                    if not _G._czFTIWarnShown then
-                        _G._czFTIWarnShown = true
-                        Notify("Catch Zone", "Method A: executor missing firetouchinterest — switch to B or C", 6)
-                    end
-                end
-            end
-
-            -- ── METHOD B fires every airborne frame — inflates hitbox ─────
-            -- CatchLeft/CatchRight become big spheres so they overlap the ball naturally.
-            if CatchZoneAssist and CatchZoneMethod == 2 then
-                local inflateSz = math.max(CatchZoneRadius * 1.6, 8)
-                for _, catchName in ipairs({"CatchLeft","CatchRight"}) do
-                    local cp = char:FindFirstChild(catchName)
-                    if cp then
-                        pcall(function()
-                            cp.Size       = Vector3.new(inflateSz, inflateSz, inflateSz)
-                            cp.CanTouch   = true
-                            cp.CanCollide = false
-                            cp.CanQuery   = false
-                            cp.Massless   = true
-                        end)
-                    end
-                end
-            end
-
-            -- Update HUD card (Methods B and C use proximity — show distance)
-            if CatchZoneMethod ~= 1 then
-                if _G.DuneCZStatus and _G.DuneCZDist then
-                    pcall(function()
-                        local displayDist = math.floor(closestDist * 10) / 10
-                        _G.DuneCZDist.Text = displayDist .. "m"
-                        if anyHandInZone then
-                            _G.DuneCZStatus.Text          = "✓ IN ZONE"
-                            _G.DuneCZStatus.TextColor3    = Color3.fromRGB(90, 220, 120)
-                            _G.DuneCZDist.TextColor3      = Color3.fromRGB(90, 220, 120)
-                            _G.DuneCZDot.BackgroundColor3 = Color3.fromRGB(90, 220, 120)
-                            _G.DuneCZCardStroke.Color     = Color3.fromRGB(90, 220, 120)
-                        else
-                            _G.DuneCZStatus.Text          = "◎ " .. displayDist .. "m to zone"
-                            _G.DuneCZStatus.TextColor3    = T.TSub
-                            _G.DuneCZDist.TextColor3      = T.acc
-                            _G.DuneCZDot.BackgroundColor3 = T.accDim
-                            _G.DuneCZCardStroke.Color     = T.bdr
-                        end
-                    end)
-                end
-            end
-
-            -- ── METHOD C proximity gate ────────────────────────────────────
-            -- Only C needs hands in zone. A fires globally, B inflates globally.
-            if anyHandInZone then
-                -- First frame entering zone: pulse sphere
-                if not _czInZone then
-                    _czInZone = true
-                    czPulseIn()
-                end
-
-                -- Method C Part Snap — only runs when hands are actually in zone
-                if CatchZoneAssist and CatchZoneMethod == 3 then
-                    for _, catchName in ipairs({"CatchLeft","CatchRight"}) do
-                        local cp = char:FindFirstChild(catchName)
-                        if cp and ball then
-                            local welds = {}
-                            for _, c in ipairs(char:GetDescendants()) do
-                                if c.Enabled ~= nil and (c:IsA("Weld") or c:IsA("WeldConstraint")) then
-                                    local ok, p0, p1 = pcall(function() return c.Part0, c.Part1 end)
-                                    if ok and (p0 == cp or p1 == cp) then
-                                        c.Enabled = false
-                                        table.insert(welds, c)
-                                    end
-                                end
+            -- ── METHOD ROUTER ──────────────────────────────────────────────
+            -- A: firetouchinterest — all 3 arg orders + untouch pair
+            -- B: getconnections :Fire() — direct callback invocation
+            -- C: Inflate — giant catch parts, pure physics overlap
+            -- D: CFrame Warp — move only CatchLeft/CatchRight to ball
+            if CatchZoneAssist then
+                if CatchZoneMethod == 1 then
+                    -- CONFIRMED PATTERN: (touching_part, part_with_listener, 0/1)
+                    -- Must fire 0 then 1 — server needs the full touch+untouch pair
+                    -- Try all 3 permutations since we don't know which part UFB listens on
+                    if typeof(firetouchinterest) == "function" then
+                        for _, cn in ipairs({"CatchLeft","CatchRight"}) do
+                            local cp = char:FindFirstChild(cn)
+                            if cp then
+                                pcall(firetouchinterest, cp,  ball, 0); pcall(firetouchinterest, cp,  ball, 1)
+                                pcall(firetouchinterest, ball, cp,  0); pcall(firetouchinterest, ball, cp,  1)
+                                pcall(firetouchinterest, hrp,  ball, 0); pcall(firetouchinterest, hrp,  ball, 1)
                             end
-                            for _, c in ipairs(cp:GetChildren()) do
-                                if c.Enabled ~= nil and (c:IsA("Weld") or c:IsA("WeldConstraint")) then
-                                    c.Enabled = false; table.insert(welds, c)
-                                end
-                            end
-                            pcall(function() cp.CFrame = CFrame.new(ball.Position) end)
-                            task.defer(function()
-                                for _, w in ipairs(welds) do pcall(function() w.Enabled = true end) end
-                            end)
                         end
+                    else
+                        if not _G._czFTIWarn then _G._czFTIWarn=true
+                            Notify("Catch Zone","Method A: no firetouchinterest — try B/C/D",5) end
+                    end
+
+                elseif CatchZoneMethod == 2 then
+                    -- Gets all Lua functions on ball.Touched & cp.Touched and invokes them
+                    if typeof(getconnections) == "function" then
+                        for _, cn in ipairs({"CatchLeft","CatchRight"}) do
+                            local cp = char:FindFirstChild(cn)
+                            if cp then
+                                pcall(function()
+                                    for _,c in ipairs(getconnections(ball.Touched)) do pcall(function() c:Fire(cp) end) end
+                                    for _,c in ipairs(getconnections(cp.Touched))   do pcall(function() c:Fire(ball) end) end
+                                end)
+                            end
+                        end
+                    else
+                        if not _G._czGCWarn then _G._czGCWarn=true
+                            Notify("Catch Zone","Method B: no getconnections — try A/C/D",5) end
+                    end
+
+                elseif CatchZoneMethod == 3 then
+                    -- Inflate to huge size every frame — works if UFB uses OverlapParams
+                    local sz = math.max(CatchZoneRadius * 2, 12)
+                    for _, cn in ipairs({"CatchLeft","CatchRight"}) do
+                        local cp = char:FindFirstChild(cn)
+                        if cp then pcall(function()
+                            cp.Size=Vector3.new(sz,sz,sz); cp.CanTouch=true
+                            cp.CanCollide=false; cp.CanQuery=false; cp.Massless=true
+                        end) end
+                    end
+
+                elseif CatchZoneMethod == 4 then
+                    -- Warp ONLY catch parts to ball each frame — no HRP movement
+                    for _, cn in ipairs({"CatchLeft","CatchRight"}) do
+                        local cp = char:FindFirstChild(cn)
+                        if cp then pcall(function() cp.CFrame = ball.CFrame end) end
                     end
                 end
-            else
-                -- Hands left the zone
-                if _czInZone then
-                    _czInZone = false
-                    if not _czPulsing then czTw(Color3.fromRGB(220,170,80), 0.55, 0.18) end
-                end
+            end
+
+            -- HUD update
+            if _G.DuneCZStatus then pcall(function()
+                local d = math.floor(closestDist*10)/10
+                _G.DuneCZDist.Text = d.."m"
+                local inZ = anyHandInZone or CatchZoneMethod == 1 or CatchZoneMethod == 2
+                _G.DuneCZStatus.Text = inZ and "⚡ ACTIVE" or "◎ "..d.."m away"
+                local c = inZ and Color3.fromRGB(90,220,120) or T.TSub
+                _G.DuneCZStatus.TextColor3=c; _G.DuneCZDist.TextColor3=c
+                _G.DuneCZDot.BackgroundColor3=c; _G.DuneCZCardStroke.Color=c
+            end) end
+
+            if anyHandInZone and not _czInZone then _czInZone=true; czPulseIn()
+            elseif not anyHandInZone and _czInZone then
+                _czInZone=false
+                if not _czPulsing then czTw(Color3.fromRGB(220,170,80),0.55,0.18) end
             end
 
         elseif not airborne then
-            -- Ball on ground — reset everything
             _czInZone = false
-            -- Method B: shrink catch parts back to normal when ball lands
-            if CatchZoneMethod == 2 and char then
-                for _, catchName in ipairs({"CatchLeft","CatchRight"}) do
-                    local cp = char:FindFirstChild(catchName)
-                    if cp then pcall(function() cp.Size = Vector3.new(1,1,1) end) end
+            -- Reset inflate parts when ball lands (method C = 3)
+            if CatchZoneMethod == 3 and char then
+                for _, cn in ipairs({"CatchLeft","CatchRight"}) do
+                    local cp = char:FindFirstChild(cn)
+                    if cp then pcall(function() cp.Size=Vector3.new(1,1,1) end) end
                 end
             end
             if _G.DuneCZStatus then
