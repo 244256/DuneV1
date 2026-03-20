@@ -189,7 +189,7 @@ local CatchZoneMethod  = 3       -- 1=firetouchinterest, 2=getconnections, 3=bot
 local _czOuter         = nil     -- ForceField sphere Part
 local _czBB            = nil     -- BillboardGui on ball
 local _czInZone        = false   -- was player in zone last frame (for edge detection)
-local _czPulsing       = false   -- is pulse animation running
+local _czLastFire      = 0        -- throttle catch firing to once per 0.1s   -- is pulse animation running
 
 local Conns         = {}
 local Unloaded      = false
@@ -1706,62 +1706,41 @@ conn(RS.Heartbeat, function()
             -- MeshPart AND the inner "Part" child.
 
             local innerPart = ball:FindFirstChild("Part")
-            local targets   = {ball}
-            if innerPart then table.insert(targets, innerPart) end
 
-            -- Proximity uses HRP distance for HUD/sphere
             local closestDist = (hrp.Position - bPos).Magnitude
             local anyInZone   = closestDist < CatchZoneRadius
 
-            -- Character parts to use as the "touching" side
-            local charParts = {}
-            for _, p in ipairs({"HumanoidRootPart","UpperTorso","LowerTorso",
-                                 "Head","LeftHand","RightHand",
-                                 "LeftLowerArm","RightLowerArm",
-                                 "LeftUpperArm","RightUpperArm"}) do
-                local pt = char:FindFirstChild(p)
-                if pt then table.insert(charParts, pt) end
-            end
-
             if CatchZoneAssist then
-                local m = CatchZoneMethod
-                for _, tgt in ipairs(targets) do
-                    for _, cp in ipairs(charParts) do
+                local now = tick()
+                -- Throttle: fire at most once every 0.1s to avoid physics explosion
+                if now - _czLastFire >= 0.1 then
+                    _czLastFire = now
+                    local m = CatchZoneMethod
+                    -- Target: inner "Part" child first, fall back to ball MeshPart
+                    -- Subject: just HRP — firing every body part caused flings
+                    local tgt = innerPart or ball
+                    local cp  = hrp
 
-                        -- ── A: firetouchinterest ──────────────────────────
-                        -- (charPart, ballPart, 0) then (charPart, ballPart, 1)
-                        -- Double-cycle: server needs begin+end pair
-                        if m==1 or m==3 then
-                            if typeof(firetouchinterest)=="function" then
-                                task.spawn(function()
-                                    pcall(firetouchinterest, cp, tgt, 0)
-                                    pcall(firetouchinterest, cp, tgt, 1)
-                                    task.wait()
-                                    pcall(firetouchinterest, cp, tgt, 0)
-                                    pcall(firetouchinterest, cp, tgt, 1)
-                                end)
-                            elseif not _G._czFTIWarn then
-                                _G._czFTIWarn=true
-                                Notify("Catch Zone","A: no firetouchinterest",5)
-                            end
+                    if m==1 or m==3 then
+                        if typeof(firetouchinterest)=="function" then
+                            pcall(firetouchinterest, cp, tgt, 0)
+                            pcall(firetouchinterest, cp, tgt, 1)
+                        elseif not _G._czFTIWarn then
+                            _G._czFTIWarn=true
+                            Notify("Catch Zone","A: no firetouchinterest",5)
                         end
+                    end
 
-                        -- ── B: getconnections :Fire() ─────────────────────
-                        -- Fire every Touched listener on the target with cp
-                        if m==2 or m==3 then
-                            if typeof(getconnections)=="function" then
-                                task.spawn(function()
-                                    pcall(function()
-                                        local conns = getconnections(tgt.Touched)
-                                        for _,c in ipairs(conns) do pcall(function() c:Fire(cp) end) end
-                                        task.wait()
-                                        for _,c in ipairs(conns) do pcall(function() c:Fire(cp) end) end
-                                    end)
-                                end)
-                            elseif not _G._czGCWarn then
-                                _G._czGCWarn=true
-                                Notify("Catch Zone","B: no getconnections",5)
-                            end
+                    if m==2 or m==3 then
+                        if typeof(getconnections)=="function" then
+                            pcall(function()
+                                for _,c in ipairs(getconnections(tgt.Touched)) do
+                                    pcall(function() c:Fire(cp) end)
+                                end
+                            end)
+                        elseif not _G._czGCWarn then
+                            _G._czGCWarn=true
+                            Notify("Catch Zone","B: no getconnections",5)
                         end
                     end
                 end
