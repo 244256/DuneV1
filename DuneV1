@@ -185,11 +185,12 @@ local TeleportFwdOn = false
 local CatchZoneOn      = false
 local CatchZoneRadius  = 14
 local CatchZoneAssist  = true
-local _czOuter         = nil     -- nil now (sphere removed)
-local _czBB            = nil     -- BillboardGui on ball
+local _czOuter         = nil
+local _czBB            = nil
 local _czInZone        = false
 local _czPulsing       = false
-local _czCatchBox      = nil     -- cached CatchBox Part reference
+local _czCatchBox      = nil
+local _czLastFire      = 0
 
 local Conns         = {}
 local Unloaded      = false
@@ -298,8 +299,9 @@ local function watchBall(ball)
     _ballConns[ball] = ball.Destroying:Connect(function()
         if _ball == ball then _ball = nil end
         resetCatchParts()
-        czDestroyVisuals()
-        _czCatchBox     = nil   -- force re-lookup for next ball
+        czDestroyVisuals()   -- destroys _czBB and _czOuter, resets _czInZone/_czPulsing
+        _czCatchBox     = nil
+        _czLastFire     = 0
         _G._czCatchWarn = nil
         _G._czFTIWarn   = nil
         _ballConns[ball] = nil
@@ -1699,28 +1701,35 @@ conn(RS.Heartbeat, function()
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                -- Look up CatchBox once per ball spawn, cache it
-                if not _czCatchBox then
-                    pcall(function()
-                        local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
-                        if hitboxes then
-                            local pBox = hitboxes:FindFirstChild(LP.Name)
-                            if pBox then _czCatchBox = pBox:FindFirstChild("CatchBox") end
-                        end
-                    end)
-                end
+                -- Only fire when close enough + throttle to 10x/sec max
+                -- Firing every frame at 60fps caused the lag
+                local now = tick()
+                if closestDist < CatchZoneRadius and now - (_czLastFire or 0) >= 0.1 then
+                    _czLastFire = now
 
-                if _czCatchBox then
-                    if typeof(firetouchinterest) == "function" then
-                        pcall(firetouchinterest, _czCatchBox, ball, 0)
-                        pcall(firetouchinterest, _czCatchBox, ball, 1)
-                    elseif not _G._czFTIWarn then
-                        _G._czFTIWarn = true
-                        Notify("Catch Zone","firetouchinterest not on this executor",5)
+                    -- Look up CatchBox once per ball spawn
+                    if not _czCatchBox then
+                        pcall(function()
+                            local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
+                            if hitboxes then
+                                local pBox = hitboxes:FindFirstChild(LP.Name)
+                                if pBox then _czCatchBox = pBox:FindFirstChild("CatchBox") end
+                            end
+                        end)
                     end
-                elseif not _G._czCatchWarn then
-                    _G._czCatchWarn = true
-                    Notify("Catch Zone","CatchBox not found in Hitboxes",5)
+
+                    if _czCatchBox then
+                        if typeof(firetouchinterest) == "function" then
+                            pcall(firetouchinterest, _czCatchBox, ball, 0)
+                            pcall(firetouchinterest, _czCatchBox, ball, 1)
+                        elseif not _G._czFTIWarn then
+                            _G._czFTIWarn = true
+                            Notify("Catch Zone","firetouchinterest not on this executor",5)
+                        end
+                    elseif not _G._czCatchWarn then
+                        _G._czCatchWarn = true
+                        Notify("Catch Zone","CatchBox not found in Hitboxes",5)
+                    end
                 end
             end
 
