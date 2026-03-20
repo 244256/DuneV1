@@ -1695,37 +1695,34 @@ conn(RS.Heartbeat, function()
         end
 
         if airborne and char and hrp then
-            -- CONFIRMED MECHANISM: Workspace.Games.{id}.Replicated.Hitboxes.{Player}.Catching
-            -- is a BoolValue. Setting it to true = catch registered by server.
-            -- OneHandedCatching BoolValue also exists for one-handed catches.
+            -- CONFIRMED: CatchBox is at Replicated.Hitboxes.{Player}.CatchBox
+            -- It's a Part with CanTouch=true. UFB listens on its Touched event.
+            -- firetouchinterest(CatchBox, Football, 0/1) is the correct call.
 
             local closestDist = (hrp.Position - bPos).Magnitude
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                -- Find Catching BoolValue under this player in Hitboxes
-                local catching = nil
-                local oneHanded = nil
+                local catchBox = nil
                 pcall(function()
-                    local replicated = ball.Parent  -- Workspace.Games.{id}.Replicated
-                    if replicated then
-                        local hitboxes = replicated:FindFirstChild("Hitboxes")
-                        if hitboxes then
-                            local pBox = hitboxes:FindFirstChild(LP.Name)
-                            if pBox then
-                                catching = pBox:FindFirstChild("Catching")
-                                oneHanded = pBox:FindFirstChild("OneHandedCatching")
-                            end
-                        end
+                    local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
+                    if hitboxes then
+                        local pBox = hitboxes:FindFirstChild(LP.Name)
+                        if pBox then catchBox = pBox:FindFirstChild("CatchBox") end
                     end
                 end)
 
-                if catching then
-                    pcall(function() catching.Value = true end)
-                    if oneHanded then pcall(function() oneHanded.Value = true end) end
+                if catchBox then
+                    if typeof(firetouchinterest) == "function" then
+                        pcall(firetouchinterest, catchBox, ball, 0)
+                        pcall(firetouchinterest, catchBox, ball, 1)
+                    elseif not _G._czFTIWarn then
+                        _G._czFTIWarn = true
+                        Notify("Catch Zone","firetouchinterest not on this executor",5)
+                    end
                 elseif not _G._czCatchWarn then
                     _G._czCatchWarn = true
-                    Notify("Catch Zone","Catching BoolValue not found — wrong path?",5)
+                    Notify("Catch Zone","CatchBox not found in Hitboxes",5)
                 end
             end
 
