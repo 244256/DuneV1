@@ -1752,36 +1752,31 @@ conn(RS.Heartbeat, function()
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                local now = tick()
-                if closestDist < CatchZoneRadius and now - _czLastFire >= 0.1 then
-                    _czLastFire = now
-
-                    -- Cache CatchBox (Part, not BoolValue) once per ball spawn
-                    if not _czCatchBox then
-                        pcall(function()
-                            local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
-                            if hitboxes then
-                                local pBox = hitboxes:FindFirstChild(LP.Name)
-                                if pBox then
-                                    _czCatchBox = pBox:FindFirstChild("CatchBox")
-                                end
-                            end
-                        end)
-                    end
-
-                    if _czCatchBox then
-                        if typeof(firetouchinterest) == "function" then
-                            -- Player's CatchBox "touches" the Football
-                            pcall(firetouchinterest, _czCatchBox, ball, 0)
-                            pcall(firetouchinterest, _czCatchBox, ball, 1)
-                        elseif not _G._czFTIWarn then
-                            _G._czFTIWarn = true
-                            Notify("Catch Zone","firetouchinterest not on this executor",5)
+                -- Look up CatchBox once per ball spawn
+                if not _czCatchBox then
+                    pcall(function()
+                        local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
+                        if hitboxes then
+                            local pBox = hitboxes:FindFirstChild(LP.Name)
+                            if pBox then _czCatchBox = pBox:FindFirstChild("CatchBox") end
                         end
-                    elseif not _G._czCatchWarn then
-                        _G._czCatchWarn = true
-                        Notify("Catch Zone","CatchBox not found — check Hitboxes path",5)
+                    end)
+                end
+
+                if _czCatchBox then
+                    if typeof(firetouchinterest) == "function" then
+                        -- Fire every frame — no throttle, no proximity gate
+                        -- Ball trajectory change confirms this works, just needs
+                        -- to fire fast enough to complete the catch
+                        pcall(firetouchinterest, _czCatchBox, ball, 0)
+                        pcall(firetouchinterest, _czCatchBox, ball, 1)
+                    elseif not _G._czFTIWarn then
+                        _G._czFTIWarn = true
+                        Notify("Catch Zone","firetouchinterest not on this executor",5)
                     end
+                elseif not _G._czCatchWarn then
+                    _G._czCatchWarn = true
+                    Notify("Catch Zone","CatchBox not found — check Hitboxes path",5)
                 end
             end
 
