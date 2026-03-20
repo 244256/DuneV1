@@ -317,10 +317,10 @@ local function watchHitboxes()
     -- Poll for Hitboxes folder since ball may not exist yet
     task.spawn(function()
         while not Unloaded do
-            task.wait(1)
-            local ball = getBall()
-            if ball and ball.Parent then
-                local hb = ball.Parent:FindFirstChild("Hitboxes")
+            task.wait(2) -- poll every 2s — less overhead than 1s
+            local b = getBall()
+            if b and b.Parent then
+                local hb = b.Parent:FindFirstChild("Hitboxes")
                 if hb and hb ~= hitboxes then
                     hitboxes = hb
                     -- New hitboxes folder = new drive, reset CatchBox cache
@@ -342,24 +342,29 @@ local function watchHitboxes()
 end
 watchHitboxes()
 
--- Ball is at Workspace.Games.{id}.Replicated.Football (MeshPart inside Folder)
--- workspace:GetChildren() only sees top-level — must use GetDescendants
 local function getBall()
+    -- Return cached reference immediately — ball is found at startup and never rescanned
     if _ball and _ball.Parent then return _ball end
     _ball = nil
-    for _, v in ipairs(workspace:GetDescendants()) do
-        if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) then
-            _ball = v; watchBall(v); return v
-        end
-    end
     return nil
 end
 
--- Also watch any depth for a new Football spawning
-conn(workspace.DescendantAdded, function(v)
-    if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) and not _ball then
-        _ball = v; watchBall(v)
+-- Find ball once at startup then rely purely on DescendantAdded for respawns
+task.spawn(function()
+    -- Try immediately first
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) then
+            _ball = v; watchBall(v); break
+        end
     end
+    -- Then watch for new ones
+    local descConn
+    descConn = workspace.DescendantAdded:Connect(function(v)
+        if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) then
+            if not _ball then _ball = v; watchBall(v) end
+        end
+    end)
+    table.insert(Conns, descConn)
 end)
 
 -- FIX 3: carrier proximity threshold reduced 10 → 4 studs.
@@ -1686,15 +1691,28 @@ conn(RS.Heartbeat, function()
         pcall(function() flyBV:Destroy() end); flyBV=nil
     end
 
+    -- ── BALL SPEED TRACKING ───────────────────────────────────────────────
+    -- AssemblyLinearVelocity is always 0 on client for server-physics objects.
+    -- Track position delta manually instead.
+    if ball then
+        local now2 = tick()
+        local dt2  = now2 - _czLastBallTick
+        if _czLastBallPos and dt2 > 0 then
+            _czBallSpeed = (_czLastBallPos - ball.Position).Magnitude / dt2
+        end
+        _czLastBallPos  = ball.Position
+        _czLastBallTick = now2
+    else
+        _czBallSpeed = 0
+    end
+
     -- ── PULL VECTOR ───────────────────────────────────────────────────────
-    -- Requires: toggle ON + RMB held + ball exists + ball is genuinely airborne
-    -- "airborne" = velocity > 3 AND nobody within 4 studs of the ball
     if PullOn and rmbHeld and ball and hrp then
-        local ballVel   = ball.AssemblyLinearVelocity
-        local carrier   = getBallCarrier()     -- nil when nobody within 4 studs
-        local ballInAir = carrier == nil and ballVel.Magnitude > 3
+        local carrier   = getBallCarrier()
+        local ballInAir = carrier == nil and _czBallSpeed > 8
         if ballInAir then
-            local predicted = ball.Position + ballVel * PullOffset + Vector3.new(0, 2, 0)
+            -- Use last known velocity direction from position delta
+            local predicted = ball.Position + Vector3.new(0, 2, 0)
             local dist      = (predicted - hrp.Position).Magnitude
             if PullMode == 2 then
                 pcall(function() hrp.CFrame = CFrame.new(predicted) end)
@@ -1709,33 +1727,25 @@ conn(RS.Heartbeat, function()
     if CatchZoneOn and ball then
         local bPos    = ball.Position
         local carrier = getBallCarrier()
-
-        -- Manual speed tracking: AssemblyLinearVelocity is always 0 on client
-        -- for server-physics objects, so we track position change ourselves.
-        local now2 = tick()
-        local dt2  = now2 - _czLastBallTick
-        if _czLastBallPos and dt2 > 0 then
-            _czBallSpeed = (_czLastBallPos - bPos).Magnitude / dt2
-        end
-        _czLastBallPos  = bPos
-        _czLastBallTick = now2
-
-        -- Ball is truly airborne: moving fast (>8 studs/sec) AND no carrier
-        -- This prevents firing when ball is sitting still on the ground
         local airborne = carrier == nil and _czBallSpeed > 8
 
-        -- BillboardGui + sphere
-        if not _czBB then czBuildVisuals(CatchZoneRadius) end
-        if _czBB then pcall(function() _czBB.Adornee = ball end) end
-        if _czOuter then pcall(function()
-            _czOuter.CFrame = CFrame.new(bPos + Vector3.new(0, 1, 0))
-            if not _czPulsing then
-                local tgt = airborne and 0.72 or 0.92
-                if math.abs(_czOuter.Transparency - tgt) > 0.02 then
-                    _czOuter.Transparency = tgt
+        -- Show sphere only while ball is truly airborne
+        if airborne then
+            if not _czBB then czBuildVisuals(CatchZoneRadius) end
+            if _czBB then pcall(function() _czBB.Adornee = ball end) end
+            if _czOuter then pcall(function()
+                _czOuter.CFrame = CFrame.new(bPos + Vector3.new(0, 1, 0))
+                if not _czPulsing then
+                    local tgt = 0.72
+                    if math.abs(_czOuter.Transparency - tgt) > 0.02 then
+                        _czOuter.Transparency = tgt
+                    end
                 end
-            end
-        end) end
+            end) end
+        else
+            -- Ball not airborne — destroy sphere so it doesn't get stuck
+            if _czOuter or _czBB then czDestroyVisuals() end
+        end
 
         if airborne and char and hrp then
             local closestDist = (hrp.Position - bPos).Magnitude
