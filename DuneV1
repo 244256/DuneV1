@@ -1760,7 +1760,25 @@ conn(RS.Heartbeat, function()
                 end)
             end
             local function doWarp(cp)
-                pcall(function() cp.CFrame = ball.CFrame end)
+                -- Must disable welds first or the whole character gets dragged
+                local welds = {}
+                pcall(function()
+                    for _,c in ipairs(char:GetDescendants()) do
+                        if (c:IsA("Weld") or c:IsA("WeldConstraint")) and c.Enabled then
+                            local ok,p0,p1 = pcall(function() return c.Part0,c.Part1 end)
+                            if ok and (p0==cp or p1==cp) then c.Enabled=false; table.insert(welds,c) end
+                        end
+                    end
+                    for _,c in ipairs(cp:GetChildren()) do
+                        if (c:IsA("Weld") or c:IsA("WeldConstraint")) and c.Enabled then
+                            c.Enabled=false; table.insert(welds,c)
+                        end
+                    end
+                    cp.CFrame = ball.CFrame
+                end)
+                task.defer(function()
+                    for _,w in ipairs(welds) do pcall(function() w.Enabled=true end) end
+                end)
             end
 
             if CatchZoneAssist then
@@ -1777,9 +1795,10 @@ conn(RS.Heartbeat, function()
                         elseif m==3 then doInflate(cp)
                         elseif m==4 then doWarp(cp)
                         elseif m==5 then
+                            -- E: A+B+C only — no warp, nothing moves the player
                             if typeof(firetouchinterest)=="function" then doFTI(cp) end
                             if typeof(getconnections)=="function"    then doGC(cp)  end
-                            doInflate(cp); doWarp(cp)
+                            doInflate(cp)
                         end
                     end
                 end
