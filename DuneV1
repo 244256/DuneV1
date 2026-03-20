@@ -1752,8 +1752,9 @@ conn(RS.Heartbeat, function()
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                -- Look up CatchBox once per ball spawn
-                if not _czCatchBox then
+                -- Re-lookup CatchBox every frame if stale (UFB recreates it between drives)
+                if not _czCatchBox or not _czCatchBox.Parent then
+                    _czCatchBox = nil
                     pcall(function()
                         local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
                         if hitboxes then
@@ -1763,20 +1764,25 @@ conn(RS.Heartbeat, function()
                     end)
                 end
 
-                if _czCatchBox then
+                if _czCatchBox and _czCatchBox.Parent then
                     if typeof(firetouchinterest) == "function" then
-                        -- Fire every frame — no throttle, no proximity gate
-                        -- Ball trajectory change confirms this works, just needs
-                        -- to fire fast enough to complete the catch
+                        -- Fire touch BEGIN only, repeatedly — sustained contact
+                        -- Firing 0+1 pair cancels itself out (touch+untouch)
+                        -- Just fire 0 (begin) every frame = ball is always "touching"
                         pcall(firetouchinterest, _czCatchBox, ball, 0)
-                        pcall(firetouchinterest, _czCatchBox, ball, 1)
+                        pcall(firetouchinterest, _czCatchBox, ball, 0)
+                        pcall(firetouchinterest, _czCatchBox, ball, 0)
                     elseif not _G._czFTIWarn then
                         _G._czFTIWarn = true
                         Notify("Catch Zone","firetouchinterest not on this executor",5)
                     end
-                elseif not _G._czCatchWarn then
-                    _G._czCatchWarn = true
-                    Notify("Catch Zone","CatchBox not found — check Hitboxes path",5)
+                else
+                    -- CatchBox gone or stale — force re-lookup next frame
+                    _czCatchBox = nil
+                    if not _G._czCatchWarn then
+                        _G._czCatchWarn = true
+                        Notify("Catch Zone","CatchBox missing — will retry",4)
+                    end
                 end
             end
 
