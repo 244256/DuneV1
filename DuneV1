@@ -183,13 +183,13 @@ local TeleportFwdOn = false
 
 -- ── CATCH ZONE STATE ───────────────────────────────────────────────────────
 local CatchZoneOn      = false
-local CatchZoneRadius  = 14      -- studs, adjustable
-local CatchZoneAssist  = true    -- auto-snap catch parts when hands in zone
-local CatchZoneMethod  = 1       -- unused, kept for compatibility
-local _czOuter         = nil     -- ForceField sphere Part
+local CatchZoneRadius  = 14
+local CatchZoneAssist  = true
+local _czOuter         = nil     -- nil now (sphere removed)
 local _czBB            = nil     -- BillboardGui on ball
-local _czInZone        = false   -- was player in zone last frame (for edge detection)
-local _czLastFire      = 0        -- throttle catch firing to once per 0.1s   -- is pulse animation running
+local _czInZone        = false
+local _czPulsing       = false
+local _czCatchBox      = nil     -- cached CatchBox Part reference
 
 local Conns         = {}
 local Unloaded      = false
@@ -243,7 +243,7 @@ end
 
 local function czBuildVisuals(radius)
     czDestroyVisuals()
-    _czOuter = czMakeSphere("DuneCatchZoneOuter", radius*2, Color3.fromRGB(220,170,80), 0.55)
+    _czOuter = czMakeSphere("DuneCatchZoneOuter", radius*2, Color3.fromRGB(220,170,80), 0.72)
     local bb = Instance.new("BillboardGui")
     bb.Name="DuneCatchZoneBB"; bb.Size=UDim2.fromOffset(110,28)
     bb.StudsOffset=Vector3.new(0,2.8,0); bb.AlwaysOnTop=true
@@ -266,10 +266,10 @@ local function czPulseIn()
     if _czPulsing then return end; _czPulsing=true
     task.spawn(function()
         for _=1,3 do
-            czTw(Color3.fromRGB(255,255,180), 0.35, 0.08); task.wait(0.1)
-            czTw(Color3.fromRGB(80,220,120),  0.55, 0.10); task.wait(0.12)
+            czTw(Color3.fromRGB(255,255,180), 0.45, 0.08); task.wait(0.1)
+            czTw(Color3.fromRGB(80,220,120),  0.60, 0.10); task.wait(0.12)
         end
-        czTw(Color3.fromRGB(220,170,80), 0.55, 0.2); _czPulsing=false
+        czTw(Color3.fromRGB(220,170,80), 0.72, 0.2); _czPulsing=false
     end)
 end
 
@@ -298,8 +298,9 @@ local function watchBall(ball)
     _ballConns[ball] = ball.Destroying:Connect(function()
         if _ball == ball then _ball = nil end
         resetCatchParts()
-        czDestroyVisuals()  -- clear sphere when ball disappears
-        _G._czCatchWarn = nil  -- reset so next ball gets fresh warnings
+        czDestroyVisuals()
+        _czCatchBox     = nil   -- force re-lookup for next ball
+        _G._czCatchWarn = nil
         _G._czFTIWarn   = nil
         _ballConns[ball] = nil
     end)
@@ -1068,10 +1069,7 @@ do
 
     Sld(s, "Zone Radius", 5, 40, 14, 1, function(v)
         CatchZoneRadius = v
-        if CatchZoneOn and _czOuter then
-            pcall(function() _czOuter.Size = Vector3.new(v*2, v*2, v*2) end)
-        end
-    end, 14, "Visual sphere radius only. Catch methods A/B/C are event-based and ignore this.")
+    end, 14, "HUD proximity threshold in studs — sphere turns green when you're within this range.")
 
     Tog(s, "Catch Assist Active", true, function(v)
         CatchZoneAssist = v
@@ -1677,24 +1675,20 @@ conn(RS.Heartbeat, function()
         local carrier = getBallCarrier()
         -- CRITICAL FIX: removed bVel.Magnitude > 3 — AssemblyLinearVelocity is
         -- always Vector3.zero on the client for server-physics objects. That check
-        -- permanently blocked every method from ever running.
         local airborne = (carrier == nil)
 
-        -- Sphere: build on first activate, track ball every frame
-        if not _czOuter then
-            czBuildVisuals(CatchZoneRadius)
-        else
-            pcall(function()
-                _czOuter.CFrame = CFrame.new(bPos)
-                if _czBB then _czBB.Adornee = ball end
-            end)
+        -- BillboardGui + sphere — sphere offset slightly above ball to avoid trail
+        if not _czBB then czBuildVisuals(CatchZoneRadius) end
+        if _czBB then pcall(function() _czBB.Adornee = ball end) end
+        if _czOuter then pcall(function()
+            _czOuter.CFrame = CFrame.new(bPos + Vector3.new(0, 1, 0))
             if not _czPulsing then
-                local tgt = airborne and 0.55 or 0.88
-                pcall(function()
-                    if math.abs(_czOuter.Transparency - tgt) > 0.02 then _czOuter.Transparency = tgt end
-                end)
+                local tgt = airborne and 0.72 or 0.92
+                if math.abs(_czOuter.Transparency - tgt) > 0.02 then
+                    _czOuter.Transparency = tgt
+                end
             end
-        end
+        end) end
 
         if airborne and char and hrp then
             -- CONFIRMED: CatchBox is at Replicated.Hitboxes.{Player}.CatchBox
@@ -1705,19 +1699,21 @@ conn(RS.Heartbeat, function()
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                local catchBox = nil
-                pcall(function()
-                    local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
-                    if hitboxes then
-                        local pBox = hitboxes:FindFirstChild(LP.Name)
-                        if pBox then catchBox = pBox:FindFirstChild("CatchBox") end
-                    end
-                end)
+                -- Look up CatchBox once per ball spawn, cache it
+                if not _czCatchBox then
+                    pcall(function()
+                        local hitboxes = ball.Parent:FindFirstChild("Hitboxes")
+                        if hitboxes then
+                            local pBox = hitboxes:FindFirstChild(LP.Name)
+                            if pBox then _czCatchBox = pBox:FindFirstChild("CatchBox") end
+                        end
+                    end)
+                end
 
-                if catchBox then
+                if _czCatchBox then
                     if typeof(firetouchinterest) == "function" then
-                        pcall(firetouchinterest, catchBox, ball, 0)
-                        pcall(firetouchinterest, catchBox, ball, 1)
+                        pcall(firetouchinterest, _czCatchBox, ball, 0)
+                        pcall(firetouchinterest, _czCatchBox, ball, 1)
                     elseif not _G._czFTIWarn then
                         _G._czFTIWarn = true
                         Notify("Catch Zone","firetouchinterest not on this executor",5)
