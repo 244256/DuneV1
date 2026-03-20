@@ -185,7 +185,7 @@ local TeleportFwdOn = false
 local CatchZoneOn      = false
 local CatchZoneRadius  = 14      -- studs, adjustable
 local CatchZoneAssist  = true    -- auto-snap catch parts when hands in zone
-local CatchZoneMethod  = 1       -- 1=firetouchinterest, 2=Inflate Hitbox, 3=Part Snap
+local CatchZoneMethod  = 3       -- 1=firetouchinterest(TouchInterest), 2=getconnections, 3=both
 local _czOuter         = nil     -- ForceField sphere Part
 local _czBB            = nil     -- BillboardGui on ball
 local _czInZone        = false   -- was player in zone last frame (for edge detection)
@@ -1070,7 +1070,7 @@ do
             czDistLbl.Text   = "--"
             czDot.BackgroundColor3 = T.TD
         else
-            local mNames = {"firetouchinterest","Inflate Hitbox","Part Snap"}
+            local mNames = {"firetouchinterest","getconnections","A+B combined"}
             Notify("Catch Zone", "ON  [" .. (mNames[CatchZoneMethod] or "?") .. "]")
         end
     end, 12, "Shows a gold sphere around the Football. Triggers a catch when active — pick method below.")
@@ -1081,17 +1081,15 @@ do
     Drop(s, "Catch Method", {
         "A — firetouchinterest",
         "B — getconnections :Fire()",
-        "C — Inflate Hitbox",
-        "D — CFrame Warp",
-        "E — All Methods (try this)",
-    }, 5, function(i) CatchZoneMethod=i end, 13)
+        "C — A + B combined (recommended)",
+    }, 3, function(i) CatchZoneMethod=i end, 13)
 
     Sld(s, "Zone Radius", 5, 40, 14, 1, function(v)
         CatchZoneRadius = v
         if CatchZoneOn and _czOuter then
             pcall(function() _czOuter.Size = Vector3.new(v*2, v*2, v*2) end)
         end
-    end, 14, "Radius of the catch zone in studs. Only used by methods C and D.")
+    end, 14, "Visual sphere radius only. Catch methods A/B/C are event-based and ignore this.")
 
     Tog(s, "Catch Assist Active", true, function(v)
         CatchZoneAssist = v
@@ -1718,17 +1716,18 @@ conn(RS.Heartbeat, function()
         end
 
         if airborne and char and hrp then
-            -- Broad search — picks up CatchLeft/CatchRight plus any other naming UFB uses
-            local catchNames = {"CatchLeft","CatchRight","LeftArm","RightArm","LeftHand","RightHand"}
+            -- UFB names its catch hitboxes CatchLeft and CatchRight.
+            -- Scan dynamically too in case naming ever changes.
+            local catchNames = {"CatchLeft","CatchRight"}
             for _, v in ipairs(char:GetChildren()) do
                 if v:IsA("BasePart") and v.Name:lower():find("catch") then
-                    local dup = false
-                    for _, n in ipairs(catchNames) do if n==v.Name then dup=true; break end end
+                    local dup=false
+                    for _,n in ipairs(catchNames) do if n==v.Name then dup=true;break end end
                     if not dup then table.insert(catchNames, v.Name) end
                 end
             end
 
-            -- Proximity check for HUD / pulse
+            -- Proximity for HUD / sphere pulse only
             local closestDist = (hrp.Position - bPos).Magnitude
             local anyInZone   = closestDist < CatchZoneRadius + 2.5
             for _, pn in ipairs({"LeftHand","RightHand","CatchLeft","CatchRight"}) do
@@ -1740,65 +1739,71 @@ conn(RS.Heartbeat, function()
                 end
             end
 
-            -- Helper functions for each method
-            local function doFTI(cp)
-                pcall(firetouchinterest, cp,  ball, 0); pcall(firetouchinterest, cp,  ball, 1)
-                pcall(firetouchinterest, ball, cp,  0); pcall(firetouchinterest, ball, cp,  1)
-                pcall(firetouchinterest, hrp,  ball, 0); pcall(firetouchinterest, hrp,  ball, 1)
-            end
-            local function doGC(cp)
-                pcall(function()
-                    for _,c in ipairs(getconnections(ball.Touched)) do pcall(function() c:Fire(cp) end) end
-                    for _,c in ipairs(getconnections(cp.Touched))   do pcall(function() c:Fire(ball) end) end
-                end)
-            end
-            local function doInflate(cp)
-                local sz = math.max(CatchZoneRadius*2, 12)
-                pcall(function()
-                    cp.Size=Vector3.new(sz,sz,sz); cp.CanTouch=true
-                    cp.CanCollide=false; cp.CanQuery=false; cp.Massless=true
-                end)
-            end
-            local function doWarp(cp)
-                -- Must disable welds first or the whole character gets dragged
-                local welds = {}
-                pcall(function()
-                    for _,c in ipairs(char:GetDescendants()) do
-                        if (c:IsA("Weld") or c:IsA("WeldConstraint")) and c.Enabled then
-                            local ok,p0,p1 = pcall(function() return c.Part0,c.Part1 end)
-                            if ok and (p0==cp or p1==cp) then c.Enabled=false; table.insert(welds,c) end
-                        end
-                    end
-                    for _,c in ipairs(cp:GetChildren()) do
-                        if (c:IsA("Weld") or c:IsA("WeldConstraint")) and c.Enabled then
-                            c.Enabled=false; table.insert(welds,c)
-                        end
-                    end
-                    cp.CFrame = ball.CFrame
-                end)
-                task.defer(function()
-                    for _,w in ipairs(welds) do pcall(function() w.Enabled=true end) end
-                end)
-            end
+            -- ── HOW UFB CATCHING ACTUALLY WORKS ─────────────────────────
+            -- UFB's server calls ball.Touched:Connect(handler) when the ball
+            -- spawns. Roblox automatically creates a child named "TouchInterest"
+            -- (class TouchTransmitter) inside the ball when this happens.
+            --
+            -- firetouchinterest(Part, Transmitter, Toggle) signature (Synapse docs):
+            --   Part       = the part doing the touching (CatchLeft/CatchRight)
+            --   Transmitter = the TouchInterest OBJECT (NOT the ball itself)
+            --   Toggle     = 0 (touch begin) or 1 (touch end)
+            --
+            -- We were passing ball directly as Transmitter — wrong. Need the
+            -- TouchInterest child inside ball.
+            --
+            -- Also: UFB may also listen on CatchLeft/CatchRight directly, so
+            -- we try both directions.
+            -- ─────────────────────────────────────────────────────────────
+
+            -- Get the ball's TouchInterest (created when server does ball.Touched:Connect)
+            local ballTI = ball:FindFirstChild("TouchInterest")
+                        or ball:FindFirstChildOfClass("TouchTransmitter")
 
             if CatchZoneAssist then
                 for _, cn in ipairs(catchNames) do
                     local cp = char:FindFirstChild(cn)
-                    if cp and cp:IsA("BasePart") then
-                        local m = CatchZoneMethod
-                        if m==1 then
-                            if typeof(firetouchinterest)=="function" then doFTI(cp)
-                            elseif not _G._czFTIWarn then _G._czFTIWarn=true; Notify("Catch Zone","A: no firetouchinterest — try E",5) end
-                        elseif m==2 then
-                            if typeof(getconnections)=="function" then doGC(cp)
-                            elseif not _G._czGCWarn then _G._czGCWarn=true; Notify("Catch Zone","B: no getconnections — try E",5) end
-                        elseif m==3 then doInflate(cp)
-                        elseif m==4 then doWarp(cp)
-                        elseif m==5 then
-                            -- E: A+B+C only — no warp, nothing moves the player
-                            if typeof(firetouchinterest)=="function" then doFTI(cp) end
-                            if typeof(getconnections)=="function"    then doGC(cp)  end
-                            doInflate(cp)
+                    if not (cp and cp:IsA("BasePart")) then continue end
+
+                    local m = CatchZoneMethod
+
+                    -- ── A: firetouchinterest with correct Transmitter ──────
+                    if m==1 or m==3 then
+                        if typeof(firetouchinterest)=="function" then
+                            -- Direction 1: cp is touching ball's listener
+                            if ballTI then
+                                pcall(firetouchinterest, cp, ballTI, 0)
+                                pcall(firetouchinterest, cp, ballTI, 1)
+                            end
+                            -- Direction 2: ball is touching cp's listener
+                            local cpTI = cp:FindFirstChild("TouchInterest")
+                                      or cp:FindFirstChildOfClass("TouchTransmitter")
+                            if cpTI then
+                                pcall(firetouchinterest, ball, cpTI, 0)
+                                pcall(firetouchinterest, ball, cpTI, 1)
+                            end
+                        elseif not _G._czFTIWarn then
+                            _G._czFTIWarn=true
+                            Notify("Catch Zone","Method A: no firetouchinterest on executor — try B or C",5)
+                        end
+                    end
+
+                    -- ── B: getconnections direct invoke ───────────────────
+                    if m==2 or m==3 then
+                        if typeof(getconnections)=="function" then
+                            pcall(function()
+                                -- Fire all handlers on ball.Touched with cp as the arg
+                                for _,c in ipairs(getconnections(ball.Touched)) do
+                                    pcall(function() c:Fire(cp) end)
+                                end
+                                -- Fire all handlers on cp.Touched with ball as the arg
+                                for _,c in ipairs(getconnections(cp.Touched)) do
+                                    pcall(function() c:Fire(ball) end)
+                                end
+                            end)
+                        elseif not _G._czGCWarn then
+                            _G._czGCWarn=true
+                            Notify("Catch Zone","Method B: no getconnections on executor — try A or C",5)
                         end
                     end
                 end
@@ -1821,14 +1826,7 @@ conn(RS.Heartbeat, function()
             end
 
         else
-            -- Ball held — reset inflated parts
             _czInZone=false
-            if CatchZoneMethod>=3 and char then
-                for _, cn in ipairs({"CatchLeft","CatchRight","LeftArm","RightArm"}) do
-                    local cp=char:FindFirstChild(cn)
-                    if cp then pcall(function() cp.Size=Vector3.new(1,1,1) end) end
-                end
-            end
             if _G.DuneCZStatus then pcall(function()
                 _G.DuneCZStatus.Text="Ball held"; _G.DuneCZStatus.TextColor3=T.TD
                 if _G.DuneCZDist       then _G.DuneCZDist.Text="--" end
