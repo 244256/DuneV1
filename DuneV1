@@ -344,13 +344,12 @@ local function watchHitboxes()
 end
 watchHitboxes()
 
-local _getBallScanTick = 0
 local function getBall()
     if _ball and _ball.Parent then return _ball end
     _ball = nil
-    -- Only rescan every 3s to avoid lag, but always rescan if cache goes stale
+    -- Throttle scans to max 2/sec — fast enough to catch drive changes, not laggy
     local now = tick()
-    if now - _getBallScanTick < 3 then return nil end
+    if now - _getBallScanTick < 0.5 then return nil end
     _getBallScanTick = now
     for _, v in ipairs(workspace:GetDescendants()) do
         if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) then
