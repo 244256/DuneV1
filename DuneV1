@@ -1738,37 +1738,26 @@ conn(RS.Heartbeat, function()
     if CatchZoneOn and ball then
         local bPos    = ball.Position
         local carrier = getBallCarrier()
-        -- Two ways to detect airborne:
-        -- 1. Ball is moving (speed > 2 studs/sec client-side)
-        -- 2. Ball is clearly elevated above field (Y > 5) — thrown balls arc up
-        -- Using OR means if replication is slow on speed, height catches it
-        local ballHigh = bPos.Y > 5
-        local airborne = carrier == nil and (_czBallSpeed > 2 or ballHigh)
+        local airborne = carrier == nil and _czBallSpeed > 1
 
-        -- Show sphere only while ball is truly airborne
-        if airborne then
-            if not _czBB then czBuildVisuals(CatchZoneRadius) end
-            if _czBB then pcall(function() _czBB.Adornee = ball end) end
-            if _czOuter then pcall(function()
-                _czOuter.CFrame = CFrame.new(bPos + Vector3.new(0, 1, 0))
-                if not _czPulsing then
-                    local tgt = 0.72
-                    if math.abs(_czOuter.Transparency - tgt) > 0.02 then
-                        _czOuter.Transparency = tgt
-                    end
+        -- Sphere always visible while zone is on, just dims when ball not moving
+        if not _czBB then czBuildVisuals(CatchZoneRadius) end
+        if _czBB then pcall(function() _czBB.Adornee = ball end) end
+        if _czOuter then pcall(function()
+            _czOuter.CFrame = CFrame.new(bPos + Vector3.new(0, 1, 0))
+            if not _czPulsing then
+                local tgt = airborne and 0.72 or 0.92
+                if math.abs(_czOuter.Transparency - tgt) > 0.02 then
+                    _czOuter.Transparency = tgt
                 end
-            end) end
-        else
-            -- Ball not airborne — destroy sphere so it doesn't get stuck
-            if _czOuter or _czBB then czDestroyVisuals() end
-        end
+            end
+        end) end
 
         if airborne and char and hrp then
             local closestDist = (hrp.Position - bPos).Magnitude
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                -- Re-lookup CatchBox every frame if stale (UFB recreates it between drives)
                 if not _czCatchBox or not _czCatchBox.Parent then
                     _czCatchBox = nil
                     pcall(function()
@@ -1782,9 +1771,6 @@ conn(RS.Heartbeat, function()
 
                 if _czCatchBox and _czCatchBox.Parent then
                     if typeof(firetouchinterest) == "function" then
-                        -- Fire touch BEGIN only, repeatedly — sustained contact
-                        -- Firing 0+1 pair cancels itself out (touch+untouch)
-                        -- Just fire 0 (begin) every frame = ball is always "touching"
                         pcall(firetouchinterest, _czCatchBox, ball, 0)
                         pcall(firetouchinterest, _czCatchBox, ball, 0)
                         pcall(firetouchinterest, _czCatchBox, ball, 0)
@@ -1793,12 +1779,7 @@ conn(RS.Heartbeat, function()
                         Notify("Catch Zone","firetouchinterest not on this executor",5)
                     end
                 else
-                    -- CatchBox gone or stale — force re-lookup next frame
                     _czCatchBox = nil
-                    if not _G._czCatchWarn then
-                        _G._czCatchWarn = true
-                        Notify("Catch Zone","CatchBox missing — will retry",4)
-                    end
                 end
             end
 
@@ -1818,11 +1799,7 @@ conn(RS.Heartbeat, function()
             end
 
         else
-            -- Ball held or on ground — reset zone state
-            if _czInZone then
-                _czInZone=false
-                if not _czPulsing then czTw(Color3.fromRGB(220,170,80),0.72,0.18) end
-            end
+            if _czInZone then _czInZone=false end
             if _G.DuneCZStatus then pcall(function()
                 local txt = carrier and "Ball held" or "Ball on ground"
                 _G.DuneCZStatus.Text=txt; _G.DuneCZStatus.TextColor3=T.TD
@@ -1831,9 +1808,9 @@ conn(RS.Heartbeat, function()
                 if _G.DuneCZCardStroke then _G.DuneCZCardStroke.Color=T.bdr end
             end) end
         end
-    elseif CatchZoneOn and not ball and _czOuter then
+    elseif CatchZoneOn and not ball and _czBB then
         czDestroyVisuals()
-    elseif not CatchZoneOn and _czOuter then
+    elseif not CatchZoneOn and (_czOuter or _czBB) then
         czDestroyVisuals()
     end
 
