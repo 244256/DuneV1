@@ -185,7 +185,7 @@ local TeleportFwdOn = false
 local CatchZoneOn      = false
 local CatchZoneRadius  = 14      -- studs, adjustable
 local CatchZoneAssist  = true    -- auto-snap catch parts when hands in zone
-local CatchZoneMethod  = 3       -- 1=firetouchinterest, 2=getconnections, 3=both
+local CatchZoneMethod  = 1       -- unused, kept for compatibility
 local _czOuter         = nil     -- ForceField sphere Part
 local _czBB            = nil     -- BillboardGui on ball
 local _czInZone        = false   -- was player in zone last frame (for edge detection)
@@ -920,7 +920,9 @@ if isMobile then
 end
 
 -- ── LONG ARMS LOOP ────────────────────────────────────────────────────────
-local ARM_PARTS = {"LeftHand","RightHand","LeftLowerArm","RightLowerArm","LeftUpperArm","RightUpperArm"}
+-- R15 names first, R6 fallbacks included
+local ARM_PARTS = {"LeftHand","RightHand","LeftLowerArm","RightLowerArm",
+                   "LeftUpperArm","RightUpperArm","Left Arm","Right Arm"}
 local _armOrigSizes = {}
 local _armOrigTrans = {}
 
@@ -1052,19 +1054,14 @@ do
             czDistLbl.Text   = "--"
             czDot.BackgroundColor3 = T.TD
         else
-            local mNames = {"firetouchinterest","getconnections","A+B combined"}
-            Notify("Catch Zone", "ON  [" .. (mNames[CatchZoneMethod] or "?") .. "]")
+            Notify("Catch Zone", "ON — LocalCatchTracker method")
         end
     end, 12, "Shows a gold sphere around the Football. Triggers a catch when active — pick method below.")
 
     -- ── CATCH METHOD DROPDOWN ───────────────────────────────────────────────
     -- Three completely different ways to register a catch with the server.
     -- Try each one and tell us which works for you.
-    Drop(s, "Catch Method", {
-        "A — firetouchinterest",
-        "B — getconnections :Fire()",
-        "C — A + B combined (recommended)",
-    }, 3, function(i) CatchZoneMethod=i end, 13)
+    -- Method is now always LocalCatchTracker — no dropdown needed
 
     Sld(s, "Zone Radius", 5, 40, 14, 1, function(v)
         CatchZoneRadius = v
@@ -1698,51 +1695,37 @@ conn(RS.Heartbeat, function()
         end
 
         if airborne and char and hrp then
-            -- KEY FINDING from diagnostic:
-            -- CatchLeft/CatchRight DO NOT EXIST in this game.
-            -- Ball is a MeshPart at Workspace.Games.{id}.Replicated.Football
-            -- Ball has a child "Part" which is the catch trigger zone.
-            -- We fire HRP (and other body parts) against BOTH the ball
-            -- MeshPart AND the inner "Part" child.
-
-            local innerPart = ball:FindFirstChild("Part")
+            -- CONFIRMED MECHANISM: Workspace.Games.{id}.Replicated.Hitboxes.{Player}.Catching
+            -- is a BoolValue. Setting it to true = catch registered by server.
+            -- OneHandedCatching BoolValue also exists for one-handed catches.
 
             local closestDist = (hrp.Position - bPos).Magnitude
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
-                local now = tick()
-                -- Throttle: fire at most once every 0.1s to avoid physics explosion
-                if now - _czLastFire >= 0.1 then
-                    _czLastFire = now
-                    local m = CatchZoneMethod
-                    -- Target: inner "Part" child first, fall back to ball MeshPart
-                    -- Subject: just HRP — firing every body part caused flings
-                    local tgt = innerPart or ball
-                    local cp  = hrp
-
-                    if m==1 or m==3 then
-                        if typeof(firetouchinterest)=="function" then
-                            pcall(firetouchinterest, cp, tgt, 0)
-                            pcall(firetouchinterest, cp, tgt, 1)
-                        elseif not _G._czFTIWarn then
-                            _G._czFTIWarn=true
-                            Notify("Catch Zone","A: no firetouchinterest",5)
+                -- Find Catching BoolValue under this player in Hitboxes
+                local catching = nil
+                local oneHanded = nil
+                pcall(function()
+                    local replicated = ball.Parent  -- Workspace.Games.{id}.Replicated
+                    if replicated then
+                        local hitboxes = replicated:FindFirstChild("Hitboxes")
+                        if hitboxes then
+                            local pBox = hitboxes:FindFirstChild(LP.Name)
+                            if pBox then
+                                catching = pBox:FindFirstChild("Catching")
+                                oneHanded = pBox:FindFirstChild("OneHandedCatching")
+                            end
                         end
                     end
+                end)
 
-                    if m==2 or m==3 then
-                        if typeof(getconnections)=="function" then
-                            pcall(function()
-                                for _,c in ipairs(getconnections(tgt.Touched)) do
-                                    pcall(function() c:Fire(cp) end)
-                                end
-                            end)
-                        elseif not _G._czGCWarn then
-                            _G._czGCWarn=true
-                            Notify("Catch Zone","B: no getconnections",5)
-                        end
-                    end
+                if catching then
+                    pcall(function() catching.Value = true end)
+                    if oneHanded then pcall(function() oneHanded.Value = true end) end
+                elseif not _G._czCatchWarn then
+                    _G._czCatchWarn = true
+                    Notify("Catch Zone","Catching BoolValue not found — wrong path?",5)
                 end
             end
 
