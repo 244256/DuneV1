@@ -302,41 +302,23 @@ local function watchBall(ball)
     end)
 end
 
+-- Ball is at Workspace.Games.{id}.Replicated.Football (MeshPart inside Folder)
+-- workspace:GetChildren() only sees top-level — must use GetDescendants
 local function getBall()
     if _ball and _ball.Parent then return _ball end
     _ball = nil
-    for _, v in ipairs(workspace:GetChildren()) do
-        if v.Name == "Football" then
-            if v:IsA("BasePart") then
-                _ball = v; watchBall(v); return v
-            elseif v:IsA("Model") then
-                local fb = v:FindFirstChildWhichIsA("BasePart", true)
-                if fb then _ball = fb; watchBall(fb); return fb end
-            end
-        end
-        if v:IsA("Model") then
-            local fb = v:FindFirstChild("Football", true)
-            if fb and fb:IsA("BasePart") then
-                _ball = fb; watchBall(fb); return fb
-            end
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) then
+            _ball = v; watchBall(v); return v
         end
     end
     return nil
 end
 
-conn(workspace.ChildAdded, function(child)
-    if child.Name == "Football" then
-        if child:IsA("BasePart") then
-            _ball = child; watchBall(child)
-        elseif child:IsA("Model") then
-            local fb = child:FindFirstChildWhichIsA("BasePart", true)
-            if fb then _ball = fb; watchBall(fb) end
-            child.DescendantAdded:Connect(function(v)
-                if v:IsA("BasePart") and not _ball then
-                    _ball = v; watchBall(v)
-                end
-            end)
-        end
+-- Also watch any depth for a new Football spawning
+conn(workspace.DescendantAdded, function(v)
+    if v.Name == "Football" and (v:IsA("MeshPart") or v:IsA("BasePart")) and not _ball then
+        _ball = v; watchBall(v)
     end
 end)
 
@@ -1716,71 +1698,70 @@ conn(RS.Heartbeat, function()
         end
 
         if airborne and char and hrp then
-            local catchNames = {"CatchLeft","CatchRight"}
-            for _, v in ipairs(char:GetChildren()) do
-                if v:IsA("BasePart") and v.Name:lower():find("catch") then
-                    local dup=false
-                    for _,n in ipairs(catchNames) do if n==v.Name then dup=true;break end end
-                    if not dup then table.insert(catchNames, v.Name) end
-                end
-            end
+            -- KEY FINDING from diagnostic:
+            -- CatchLeft/CatchRight DO NOT EXIST in this game.
+            -- Ball is a MeshPart at Workspace.Games.{id}.Replicated.Football
+            -- Ball has a child "Part" which is the catch trigger zone.
+            -- We fire HRP (and other body parts) against BOTH the ball
+            -- MeshPart AND the inner "Part" child.
 
+            local innerPart = ball:FindFirstChild("Part")
+            local targets   = {ball}
+            if innerPart then table.insert(targets, innerPart) end
+
+            -- Proximity uses HRP distance for HUD/sphere
             local closestDist = (hrp.Position - bPos).Magnitude
-            local anyInZone   = closestDist < CatchZoneRadius + 2.5
-            for _, pn in ipairs(catchNames) do
-                local pt = char:FindFirstChild(pn)
-                if pt then
-                    local d = (pt.Position - bPos).Magnitude
-                    if d < closestDist then closestDist = d end
-                    if d < CatchZoneRadius then anyInZone = true end
-                end
+            local anyInZone   = closestDist < CatchZoneRadius
+
+            -- Character parts to use as the "touching" side
+            local charParts = {}
+            for _, p in ipairs({"HumanoidRootPart","UpperTorso","LowerTorso",
+                                 "Head","LeftHand","RightHand",
+                                 "LeftLowerArm","RightLowerArm",
+                                 "LeftUpperArm","RightUpperArm"}) do
+                local pt = char:FindFirstChild(p)
+                if pt then table.insert(charParts, pt) end
             end
 
             if CatchZoneAssist then
-                for _, cn in ipairs(catchNames) do
-                    local cp = char:FindFirstChild(cn)
-                    if not (cp and cp:IsA("BasePart")) then continue end
-                    local m = CatchZoneMethod
+                local m = CatchZoneMethod
+                for _, tgt in ipairs(targets) do
+                    for _, cp in ipairs(charParts) do
 
-                    -- ── A: firetouchinterest ────────────────────────────────
-                    -- CONFIRMED PATTERN from real working FF2/UFB mag scripts:
-                    --   firetouchinterest(catchPart, ballBasePart, 0)  -- touch begin
-                    --   firetouchinterest(catchPart, ballBasePart, 1)  -- touch end
-                    --   task.wait()
-                    --   fire again (server needs double cycle to register)
-                    -- Second arg is the ball BasePart DIRECTLY — not TouchInterest child.
-                    if m==1 or m==3 then
-                        if typeof(firetouchinterest)=="function" then
-                            task.spawn(function()
-                                pcall(firetouchinterest, cp, ball, 0)
-                                pcall(firetouchinterest, cp, ball, 1)
-                                task.wait()
-                                pcall(firetouchinterest, cp, ball, 0)
-                                pcall(firetouchinterest, cp, ball, 1)
-                            end)
-                        elseif not _G._czFTIWarn then
-                            _G._czFTIWarn=true
-                            Notify("Catch Zone","A: firetouchinterest not on this executor — use B or C",5)
-                        end
-                    end
-
-                    -- ── B: getconnections :Fire() ───────────────────────────
-                    if m==2 or m==3 then
-                        if typeof(getconnections)=="function" then
-                            task.spawn(function()
-                                pcall(function()
-                                    for _,c in ipairs(getconnections(ball.Touched)) do
-                                        pcall(function() c:Fire(cp) end)
-                                    end
+                        -- ── A: firetouchinterest ──────────────────────────
+                        -- (charPart, ballPart, 0) then (charPart, ballPart, 1)
+                        -- Double-cycle: server needs begin+end pair
+                        if m==1 or m==3 then
+                            if typeof(firetouchinterest)=="function" then
+                                task.spawn(function()
+                                    pcall(firetouchinterest, cp, tgt, 0)
+                                    pcall(firetouchinterest, cp, tgt, 1)
                                     task.wait()
-                                    for _,c in ipairs(getconnections(ball.Touched)) do
-                                        pcall(function() c:Fire(cp) end)
-                                    end
+                                    pcall(firetouchinterest, cp, tgt, 0)
+                                    pcall(firetouchinterest, cp, tgt, 1)
                                 end)
-                            end)
-                        elseif not _G._czGCWarn then
-                            _G._czGCWarn=true
-                            Notify("Catch Zone","B: getconnections not on this executor — use A or C",5)
+                            elseif not _G._czFTIWarn then
+                                _G._czFTIWarn=true
+                                Notify("Catch Zone","A: no firetouchinterest",5)
+                            end
+                        end
+
+                        -- ── B: getconnections :Fire() ─────────────────────
+                        -- Fire every Touched listener on the target with cp
+                        if m==2 or m==3 then
+                            if typeof(getconnections)=="function" then
+                                task.spawn(function()
+                                    pcall(function()
+                                        local conns = getconnections(tgt.Touched)
+                                        for _,c in ipairs(conns) do pcall(function() c:Fire(cp) end) end
+                                        task.wait()
+                                        for _,c in ipairs(conns) do pcall(function() c:Fire(cp) end) end
+                                    end)
+                                end)
+                            elseif not _G._czGCWarn then
+                                _G._czGCWarn=true
+                                Notify("Catch Zone","B: no getconnections",5)
+                            end
                         end
                     end
                 end
