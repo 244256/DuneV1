@@ -1719,11 +1719,11 @@ conn(RS.Heartbeat, function()
 
     -- ── PULL VECTOR ───────────────────────────────────────────────────────
     if PullOn and rmbHeld and ball and hrp then
+        local ballVel   = ball.AssemblyLinearVelocity
         local carrier   = getBallCarrier()
-        local ballInAir = carrier == nil and _czBallSpeed > 2
+        local ballInAir = carrier == nil and ballVel.Magnitude > 3
         if ballInAir then
-            -- Use last known velocity direction from position delta
-            local predicted = ball.Position + Vector3.new(0, 2, 0)
+            local predicted = ball.Position + ballVel * PullOffset + Vector3.new(0, 2, 0)
             local dist      = (predicted - hrp.Position).Magnitude
             if PullMode == 2 then
                 pcall(function() hrp.CFrame = CFrame.new(predicted) end)
