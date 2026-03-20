@@ -298,6 +298,9 @@ local function watchBall(ball)
     _ballConns[ball] = ball.Destroying:Connect(function()
         if _ball == ball then _ball = nil end
         resetCatchParts()
+        czDestroyVisuals()  -- clear sphere when ball disappears
+        _G._czCatchWarn = nil  -- reset so next ball gets fresh warnings
+        _G._czFTIWarn   = nil
         _ballConns[ball] = nil
     end)
 end
@@ -1670,8 +1673,7 @@ conn(RS.Heartbeat, function()
 
     -- ── CATCH ZONE ────────────────────────────────────────────────────────
     -- Core mechanic: fires every Heartbeat while ball is not held by anyone.
-    if CatchZoneOn and ball then
-        local bPos    = ball.Position
+    if CatchZoneOn and ball then        local bPos    = ball.Position
         local carrier = getBallCarrier()
         -- CRITICAL FIX: removed bVel.Magnitude > 3 — AssemblyLinearVelocity is
         -- always Vector3.zero on the client for server-physics objects. That check
@@ -1750,6 +1752,8 @@ conn(RS.Heartbeat, function()
                 if _G.DuneCZCardStroke then _G.DuneCZCardStroke.Color=T.bdr end
             end) end
         end
+    elseif CatchZoneOn and not ball and _czOuter then
+        czDestroyVisuals()
     elseif not CatchZoneOn and _czOuter then
         czDestroyVisuals()
     end
