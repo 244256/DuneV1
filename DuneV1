@@ -1737,10 +1737,12 @@ conn(RS.Heartbeat, function()
     -- ── CATCH ZONE ────────────────────────────────────────────────────────
     if CatchZoneOn and ball then
         local bPos    = ball.Position
+        local bVel    = ball.AssemblyLinearVelocity
         local carrier = getBallCarrier()
-        local airborne = carrier == nil and _czBallSpeed > 1
+        -- Same check as pull vector which is confirmed working
+        local airborne = carrier == nil and bVel.Magnitude > 3
 
-        -- Sphere always visible while zone is on, just dims when ball not moving
+        -- Sphere tracks ball always, dims when not airborne
         if not _czBB then czBuildVisuals(CatchZoneRadius) end
         if _czBB then pcall(function() _czBB.Adornee = ball end) end
         if _czOuter then pcall(function()
@@ -1758,6 +1760,7 @@ conn(RS.Heartbeat, function()
             local anyInZone   = closestDist < CatchZoneRadius
 
             if CatchZoneAssist then
+                -- Re-lookup CatchBox every frame if stale
                 if not _czCatchBox or not _czCatchBox.Parent then
                     _czCatchBox = nil
                     pcall(function()
@@ -1771,9 +1774,9 @@ conn(RS.Heartbeat, function()
 
                 if _czCatchBox and _czCatchBox.Parent then
                     if typeof(firetouchinterest) == "function" then
+                        -- Fire every frame, no throttle — this is what changed ball trajectory
                         pcall(firetouchinterest, _czCatchBox, ball, 0)
-                        pcall(firetouchinterest, _czCatchBox, ball, 0)
-                        pcall(firetouchinterest, _czCatchBox, ball, 0)
+                        pcall(firetouchinterest, _czCatchBox, ball, 1)
                     elseif not _G._czFTIWarn then
                         _G._czFTIWarn = true
                         Notify("Catch Zone","firetouchinterest not on this executor",5)
@@ -1801,13 +1804,14 @@ conn(RS.Heartbeat, function()
         else
             if _czInZone then _czInZone=false end
             if _G.DuneCZStatus then pcall(function()
-                local txt = carrier and "Ball held" or "Ball on ground"
-                _G.DuneCZStatus.Text=txt; _G.DuneCZStatus.TextColor3=T.TD
+                _G.DuneCZStatus.Text = carrier and "Ball held" or "Waiting..."
+                _G.DuneCZStatus.TextColor3 = T.TD
                 if _G.DuneCZDist       then _G.DuneCZDist.Text="--" end
                 if _G.DuneCZDot        then _G.DuneCZDot.BackgroundColor3=T.TD end
                 if _G.DuneCZCardStroke then _G.DuneCZCardStroke.Color=T.bdr end
             end) end
         end
+
     elseif CatchZoneOn and not ball and _czBB then
         czDestroyVisuals()
     elseif not CatchZoneOn and (_czOuter or _czBB) then
